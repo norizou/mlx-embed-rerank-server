@@ -1,0 +1,6 @@
++ cd /Users/norihito/AI/embed_reranker
++ echo 'Starting Ruri Embed/Rerank server with uv...'
+Starting Ruri Embed/Rerank server with uv...
++ exec /Users/norihito/AI/embed_reranker/.venv/bin/uv run --cache-dir /Users/norihito/AI/.uv_cache uvicorn ruri_embed_rerank_server:app --host 127.0.0.1 --port 1235
+/Users/norihito/AI/embed_reranker/run_ruri_server.sh: line 19: /Users/norihito/AI/embed_reranker/.venv/bin/uv: No such file or directory
+/Users/norihito/AI/embed_reranker/run_ruri_server.sh: line 19: exec: /Users/norihito/AI/embed_reranker/.venv/bin/uv: cannot execute: No such file or directory
