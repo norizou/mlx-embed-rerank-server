@@ -1,0 +1,33 @@
+{
+  "health": {
+    "expected_status": "ok",
+    "expected_embed_models": ["gemma-3-300m", "bge-m3"],
+    "expected_rerank_models": ["qwen3-0.6b"]
+  },
+  "embedding": {
+    "gemma-3-300m": {
+      "input": ["日本語のテスト文書です", "Another document for testing"],
+      "input_type": "document",
+      "expected_dim": 768,
+      "expected_count": 2
+    },
+    "bge-m3": {
+      "input": ["クエリのテスト", "ドキュメントのテスト"],
+      "input_type": "query",
+      "expected_dim": 1024,
+      "expected_count": 2
+    }
+  },
+  "rerank": {
+    "qwen3-0.6b": {
+      "query": "日本語のテスト",
+      "documents": [
+        "これは日本語の文書です",
+        "This is an English document",
+        "英語のドキュメント"
+      ],
+      "top_k": 2,
+      "expected_first_index": 0
+    }
+  }
+}

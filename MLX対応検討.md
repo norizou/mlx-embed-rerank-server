@@ -33,6 +33,5 @@ Qwen3-vl-2bのEmbed、Rerankerを使うのが良さそう。
 mlx-pythonのAPIサーバーをそのまま使うのが一番手っ取り早い。
 現行のruri-embed-reranker API
 
-http://localhost:1235
+<http://localhost:1235>
 を踏襲する形。
-

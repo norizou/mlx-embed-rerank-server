@@ -32,3 +32,17 @@
 - **パッケージの削除**: `uv remove <package_name>`
 - **サーバーの起動**: `uv run python ruri_embed_rerank_server.py`
 - **環境の同期**: `uv sync`
+
+---
+
+## 追記：MLXバックエンドへの移行 (2026-04-30)
+
+Apple Silicon環境でのパフォーマンスを最大化するため、PyTorch(MPS)ベースのRuriから、MLXベースのサーバへ移行しました。
+
+### 変更点
+1.  **推論エンジンの変更**: MLXフレームワークを採用。
+2.  **モデルの刷新**:
+    - Embedding: `Gemma 3 300M (bf16)` - プレフィックスによるタスク最適化に対応。
+    - Reranker: `Qwen3-Reranker-0.6B (mxfp8)` - 生成型Yes/Noスコアリングによる高精度化。
+3.  **マルチモデル対応**: リクエストパラメータでモデルを選択できる管理機能を実装。
+4.  **管理スクリプトの強化**: `run_mlx_server.sh` に `status`, `kill`, `restart` 機能を追加。

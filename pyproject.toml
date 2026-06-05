@@ -1,16 +1,29 @@
 [project]
 name = "embed-reranker"
 version = "0.1.0"
-description = "Add your description here"
+description = "MLX-based embedding and reranking API server for Japanese and multilingual RAG"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.110",
-    "numpy>=2.4.1",
-    "protobuf>=6.33.4",
-    "sentence-transformers>=3.0",
-    "sentencepiece>=0.2.1",
-    "torch>=2.9.1",
-    "transformers>=4.41",
     "uvicorn[standard]>=0.27",
+    "mlx",
+    "mlx-embeddings",
+    "numpy",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+
+
