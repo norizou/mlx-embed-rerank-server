@@ -152,7 +152,7 @@ uv run pytest tests/
 テスト内容：
 - `/health` — 利用可能モデルの検証
 - `/v1/embeddings` — `gemma-3-300m` / `bge-m3` の埋め込み次元・正規化チェック
-- `/v1/rerank` — `qwen3-0.6b` / `bge-reranker-v2-m3` のスコア順序・妥当性チェック
+- `/v1/rerank` — `qwen3-0.6b` のスコア順序・妥当性チェック
 
 テストデータは `tests/data/test_cases.json` で管理しています。
 
