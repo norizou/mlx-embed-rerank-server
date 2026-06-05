@@ -1,4 +1,5 @@
 import math
+import time
 import numpy as np
 import mlx.core as mx
 from fastapi import FastAPI, HTTPException
@@ -34,6 +35,11 @@ AVAILABLE_EMBED_MODELS = {
         "id": "mlx-community/bge-m3-mlx-fp16",
         "type": "standard",
         "description": "BGE-M3 (Multilingual, High precision)"
+    },
+    "qwen3-vl-embedding-2b": {
+        "id": "mlx-community/Qwen3-VL-Embedding-2B-mxfp8",
+        "type": "qwen3_vl_embed",
+        "description": "Qwen3-VL Embedding 2B (Multimodal, mlx-embeddings)"
     }
 }
 
@@ -42,6 +48,11 @@ AVAILABLE_RERANK_MODELS = {
         "id": "mlx-community/Qwen3-Reranker-0.6B-mxfp8",
         "type": "qwen3",
         "description": "Qwen3 Reranker 0.6B (Generative, Yes/No scoring)"
+    },
+    "qwen3-vl-reranker-2b": {
+        "id": "mlx-community/Qwen3-VL-Reranker-2B-mxfp8",
+        "type": "qwen3_vl_rerank",
+        "description": "Qwen3-VL Reranker 2B (Multimodal, mlx-embeddings)"
     }
 }
 
@@ -53,45 +64,139 @@ DEFAULT_RERANK = "qwen3-0.6b"
 # =====================
 
 class ModelManager:
-    def __init__(self):
+    def __init__(self, inactivity_timeout: int = 30):
         self.embed_cache = {}
         self.rerank_cache = {}
+        self.last_used = {}
         self.lock = threading.Lock()
+        self.inactivity_timeout = inactivity_timeout
+        self._start_fallback_timer()
+
+    def _start_fallback_timer(self):
+        self._fallback_timer = threading.Timer(self.inactivity_timeout, self._check_inactivity)
+        self._fallback_timer.daemon = True
+        self._fallback_timer.start()
+
+    def _check_inactivity(self):
+        now = time.time()
+        with self.lock:
+            qwen3vl_embed_timedout = False
+            qwen3vl_rerank_timedout = False
+
+            for name, ts in list(self.last_used.items()):
+                if name in self.embed_cache:
+                    config = AVAILABLE_EMBED_MODELS.get(name, {})
+                    if config.get("type", "").startswith("qwen3_vl") and now - ts > self.inactivity_timeout:
+                        qwen3vl_embed_timedout = True
+
+            for name, ts in list(self.last_used.items()):
+                if name in self.rerank_cache:
+                    config = AVAILABLE_RERANK_MODELS.get(name, {})
+                    if config.get("type", "").startswith("qwen3_vl") and now - ts > self.inactivity_timeout:
+                        qwen3vl_rerank_timedout = True
+
+            if qwen3vl_embed_timedout or qwen3vl_rerank_timedout:
+                # qwen3-vl のどちらかが timeout したら両方 unload
+                for name in list(self.embed_cache.keys()):
+                    config = AVAILABLE_EMBED_MODELS.get(name, {})
+                    if config.get("type", "").startswith("qwen3_vl"):
+                        print(f"[Fallback] Unload embed '{name}' (paired unload)")
+                        self.embed_cache.pop(name, None)
+                        self.last_used.pop(name, None)
+                for name in list(self.rerank_cache.keys()):
+                    config = AVAILABLE_RERANK_MODELS.get(name, {})
+                    if config.get("type", "").startswith("qwen3_vl"):
+                        print(f"[Fallback] Unload rerank '{name}' (paired unload)")
+                        self.rerank_cache.pop(name, None)
+                        self.last_used.pop(name, None)
+
+                # デフォルトモデルをプリロード
+                if DEFAULT_EMBED not in self.embed_cache:
+                    print(f"[Fallback] Preload default embed '{DEFAULT_EMBED}'")
+                    try:
+                        self._load_embed_unlocked(DEFAULT_EMBED, now)
+                    except Exception as e:
+                        print(f"[Fallback] Failed to preload default embed: {e}")
+                if DEFAULT_RERANK not in self.rerank_cache:
+                    print(f"[Fallback] Preload default rerank '{DEFAULT_RERANK}'")
+                    try:
+                        self._load_rerank_unlocked(DEFAULT_RERANK, now)
+                    except Exception as e:
+                        print(f"[Fallback] Failed to preload default rerank: {e}")
+
+                try:
+                    mx.metal.clear_cache()
+                except Exception:
+                    pass
+
+        self._start_fallback_timer()
+
+    def _fix_qwen3vl_processor(self, model_processor_tuple, repo_id: str):
+        """Work around mlx_embeddings not calling Qwen3VLProcessor.__init__."""
+        _model, processor = model_processor_tuple
+        inner = getattr(processor, "processor", None)
+        if inner is not None and inner.__class__.__name__ == "Qwen3VLProcessor":
+            try:
+                from transformers import AutoProcessor
+                correct = AutoProcessor.from_pretrained(repo_id)
+                for attr in ["image_ids", "video_ids", "audio_ids", "chat_template"]:
+                    if hasattr(correct, attr):
+                        setattr(inner, attr, getattr(correct, attr))
+            except Exception:
+                pass
+        return model_processor_tuple
+
+    def _load_embed_unlocked(self, name: str, now: float):
+        if name in self.embed_cache:
+            return
+        config = AVAILABLE_EMBED_MODELS[name]
+        print(f"Loading Embedding model: {config['id']}...")
+        loaded = emb_load(config['id'])
+        if config.get("type", "").startswith("qwen3_vl"):
+            loaded = self._fix_qwen3vl_processor(loaded, config['id'])
+        self.embed_cache[name] = loaded
+        self.last_used[name] = now
 
     def get_embed(self, name: str):
         if name not in AVAILABLE_EMBED_MODELS:
             raise HTTPException(status_code=400, detail=f"Unsupported embedding model: {name}")
-        
         with self.lock:
             if name not in self.embed_cache:
-                config = AVAILABLE_EMBED_MODELS[name]
-                print(f"Loading Embedding model: {config['id']}...")
-                self.embed_cache[name] = emb_load(config['id'])
+                self._load_embed_unlocked(name, time.time())
+            self.last_used[name] = time.time()
             return self.embed_cache[name], AVAILABLE_EMBED_MODELS[name]
+
+    def _load_rerank_unlocked(self, name: str, now: float):
+        if name in self.rerank_cache:
+            return
+        config = AVAILABLE_RERANK_MODELS[name]
+        print(f"Loading Reranker model: {config['id']}...")
+        if config["type"] == "qwen3_vl_rerank":
+            loaded = emb_load(config['id'])
+            loaded = self._fix_qwen3vl_processor(loaded, config['id'])
+            self.rerank_cache[name] = loaded
+        else:
+            model, tokenizer = lm_load(config['id'])
+            yes_token_id = None
+            no_token_id = None
+            if config["type"] == "qwen3":
+                yes_token_id = tokenizer.encode("yes", add_special_tokens=False)[-1]
+                no_token_id = tokenizer.encode("no", add_special_tokens=False)[-1]
+            self.rerank_cache[name] = {
+                "model": model,
+                "tokenizer": tokenizer,
+                "yes_token_id": yes_token_id,
+                "no_token_id": no_token_id
+            }
+        self.last_used[name] = now
 
     def get_rerank(self, name: str):
         if name not in AVAILABLE_RERANK_MODELS:
             raise HTTPException(status_code=400, detail=f"Unsupported rerank model: {name}")
-        
         with self.lock:
             if name not in self.rerank_cache:
-                config = AVAILABLE_RERANK_MODELS[name]
-                print(f"Loading Reranker model: {config['id']}...")
-                model, tokenizer = lm_load(config['id'])
-                
-                # 特殊トークンの事前取得
-                yes_token_id = None
-                no_token_id = None
-                if config["type"] == "qwen3":
-                    yes_token_id = tokenizer.encode("yes", add_special_tokens=False)[-1]
-                    no_token_id = tokenizer.encode("no", add_special_tokens=False)[-1]
-                
-                self.rerank_cache[name] = {
-                    "model": model,
-                    "tokenizer": tokenizer,
-                    "yes_token_id": yes_token_id,
-                    "no_token_id": no_token_id
-                }
+                self._load_rerank_unlocked(name, time.time())
+            self.last_used[name] = time.time()
             return self.rerank_cache[name], AVAILABLE_RERANK_MODELS[name]
 
 manager = ModelManager()
@@ -100,13 +205,27 @@ manager = ModelManager()
 # 推論ロジック
 # =====================
 
-def compute_embeddings(texts: List[str], model_name: str, input_type: str = "document") -> List[List[float]]:
+def compute_embeddings(texts: List[str], model_name: str, input_type: str = "document", instruction: Optional[str] = None) -> List[List[float]]:
     (model, processor), config = manager.get_embed(model_name)
     
     # プレフィックス処理
     if config["type"] == "gemma":
         prefix = "task: search result | query: " if input_type == "query" else "title: none | text: "
         texts = [f"{prefix}{t}" for t in texts]
+    
+    # Qwen3-VL Embedding モデル
+    if config["type"] == "qwen3_vl_embed":
+        inst = instruction or (
+            "Represent this sentence for retrieving relevant documents."
+            if input_type == "query"
+            else "Represent this document for retrieval."
+        )
+        inputs = [{"text": t, "instruction": inst} for t in texts]
+        embeddings = model.process(inputs, processor=processor)
+        arr = np.array(embeddings)
+        norm = np.linalg.norm(arr, axis=-1, keepdims=True)
+        norm = np.where(norm == 0, 1e-10, norm)
+        return (arr / norm).tolist()
     
     # gemmaモデルは __call__ の引数名が 'inputs' (mlx_embeddings.generate は 'input_ids' を渡すためエラー)
     if config["type"] == "gemma":
@@ -134,8 +253,25 @@ def compute_embeddings(texts: List[str], model_name: str, input_type: str = "doc
 
     raise HTTPException(status_code=500, detail="Failed to process embedding output")
 
-def compute_rerank(query: str, docs: List[str], model_name: str) -> List[float]:
+def compute_rerank(query: str, docs: List[str], model_name: str, instruction: Optional[str] = None) -> List[float]:
     cached, config = manager.get_rerank(model_name)
+    
+    # Qwen3-VL Reranker
+    if config["type"] == "qwen3_vl_rerank":
+        model, processor = cached
+        inst = instruction or (
+            "Judge whether the Document meets the requirements based on the Query. "
+            "Note that the answer can only be \"yes\" or \"no\"."
+        )
+        inputs = {
+            "instruction": inst,
+            "query": {"text": query},
+            "documents": [{"text": d} for d in docs],
+        }
+        scores = model.process(inputs, processor=processor)
+        mx.eval(scores)
+        return [float(s) for s in scores.tolist()]
+    
     model = cached["model"]
     tokenizer = cached["tokenizer"]
 
@@ -144,10 +280,10 @@ def compute_rerank(query: str, docs: List[str], model_name: str) -> List[float]:
         if config["type"] == "qwen3":
             prompt = (
                 "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query. "
-                "Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n"
+                "Note that the answer can only be \"yes\" or \"no\".\n"
                 "<|im_start|>user\n"
-                f"<Query>: {query}\n<Document>: {doc}<|im_end|>\n"
-                "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+                f"<Query>: {query}\n<Document>: {doc}\n"
+                "<|im_start|>assistant\n"
             )
             input_ids = mx.array(tokenizer.encode(prompt))
             logits = model(input_ids[None, :])
@@ -168,7 +304,6 @@ def compute_rerank(query: str, docs: List[str], model_name: str) -> List[float]:
             scores.append(score)
             
     return scores
-
 # =====================
 # API定義
 # =====================
@@ -179,6 +314,7 @@ class EmbReq(BaseModel):
     model: Optional[str] = DEFAULT_EMBED
     input: Union[str, List[str]]
     input_type: Optional[str] = "document"
+    instruction: Optional[str] = None
 
 @app.post("/v1/embeddings")
 async def embeddings(req: EmbReq):
@@ -186,7 +322,7 @@ async def embeddings(req: EmbReq):
     try:
         texts = [req.input] if isinstance(req.input, str) else req.input
         model_name = req.model or DEFAULT_EMBED
-        vecs = compute_embeddings(texts, model_name, req.input_type)
+        vecs = compute_embeddings(texts, model_name, req.input_type, req.instruction)
         
         return {
             "object": "list",
@@ -204,12 +340,13 @@ class RerankReq(BaseModel):
     query: str
     documents: List[str]
     top_k: int = 10
+    instruction: Optional[str] = None
 
 @app.post("/v1/rerank")
 @app.post("/rerank")
 async def rerank(req: RerankReq):
     model_name = req.model or DEFAULT_RERANK
-    scores = compute_rerank(req.query, req.documents, model_name)
+    scores = compute_rerank(req.query, req.documents, model_name, req.instruction)
 
     ranked = sorted(
         ({"index": i, "relevance_score": scores[i], "document": req.documents[i]} for i in range(len(req.documents))),

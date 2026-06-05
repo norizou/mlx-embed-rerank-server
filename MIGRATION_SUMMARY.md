@@ -46,3 +46,27 @@ Apple Silicon環境でのパフォーマンスを最大化するため、PyTorch
     - Reranker: `Qwen3-Reranker-0.6B (mxfp8)` - 生成型Yes/Noスコアリングによる高精度化。
 3.  **マルチモデル対応**: リクエストパラメータでモデルを選択できる管理機能を実装。
 4.  **管理スクリプトの強化**: `run_mlx_server.sh` に `status`, `kill`, `restart` 機能を追加。
+
+---
+
+## 追記：Qwen3-VL モデル対応 (2026-06-05)
+
+Vision Language Model (VLM) ベースの Embedding / Reranker を追加し、vlm-eval プロジェクトのモデルをサーバー経由で利用できるようにしました。
+
+### 変更点
+1.  **モデルの追加**:
+    - Embedding: `Qwen3-VL-Embedding-2B-mxfp8` - マルチモーダル, instruction 対応。
+    - Reranker: `Qwen3-VL-Reranker-2B-mxfp8` - マルチモーダル, instruction 対応。
+2.  **API の拡張**:
+    - `EmbReq` / `RerankReq` に `instruction` パラメータを追加。
+    - `input_type` による query/document の区別と instruction の自動付与に対応。
+3.  **ワークアラウンドの追加**:
+    - `mlx_embeddings` の `Processor.from_pretrained` が `Qwen3VLProcessor.__init__` をスキップする問題に対し、`_fix_qwen3vl_processor` で `image_ids` / `video_ids` / `audio_ids` / `chat_template` を `AutoProcessor.from_pretrained` からコピーして修復。
+4.  **自動フォールバック（メモリ最適化）**:
+    - `ModelManager` に 30 秒間隔の `_check_inactivity` タイマーを追加。
+    - Qwen3-VL 系モデルは 30 秒未使用で **ペアアンロード**（embed / rerank 両方同時解放）。
+    - アンロードと同時にデフォルトモデル（`gemma-3-300m` / `qwen3-0.6b`）をプリロード。
+    - アンロード時に `mx.metal.clear_cache()` を実行し GPU メモリを即座に解放。
+5.  **依存関係の追加**:
+    - `torch` / `torchvision` を追加（Vision モデルのロードに必須）。
+    - `transformers` を `5.6.2` → `5.10.2` にアップグレード。
