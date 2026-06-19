@@ -9,6 +9,11 @@ cd "$SCRIPT_DIR"
 # Command definition
 RUN_CMD="uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port $PORT"
 
+# --- Monitoring Configuration ---
+CHECK_INTERVAL=30    # 監視間隔 (秒)
+MAX_FAILS=2          # 連続失敗の許容回数 (30秒 × 2回 = 約60秒ハングで判定)
+CURL_TIMEOUT=10      # healthチェック自体のタイムアウト時間 (秒)
+
 function stop_server() {
     PID=$(lsof -ti:$PORT)
     if [ -n "$PID" ]; then
@@ -22,6 +27,40 @@ function stop_server() {
     fi
 }
 
+function monitor_loop() {
+    local fail_count=0
+    echo "Starting health monitor (Interval: ${CHECK_INTERVAL}s, Max fails: ${MAX_FAILS})..."
+    
+    while true; do
+        sleep $CHECK_INTERVAL
+        
+        # /health にアクセスしてHTTPステータスコードを取得
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time $CURL_TIMEOUT http://localhost:$PORT/health)
+        
+        if [ "$HTTP_CODE" = "200" ]; then
+            if [ $fail_count -gt 0 ]; then
+                echo "Server recovered from partial hang."
+            fi
+            fail_count=0
+        else
+            fail_count=$((fail_count + 1))
+            echo "Health check failed ($fail_count/$MAX_FAILS). HTTP_CODE: ${HTTP_CODE:-Timeout}"
+            
+            if [ $fail_count -ge $MAX_FAILS ]; then
+                echo "[$(date)] Server hung for $((CHECK_INTERVAL * MAX_FAILS))s! Restarting..."
+                stop_server
+                echo "Restarting MLX Server..."
+                export UV_PYTHON=3.13
+                $RUN_CMD &
+                fail_count=0
+                
+                # 起動待ちのため少し待機
+                sleep 5
+            fi
+        fi
+    done
+}
+
 function start_server() {
     PID=$(lsof -ti:$PORT)
     if [ -n "$PID" ]; then
@@ -29,7 +68,14 @@ function start_server() {
     else
         echo "Starting MLX Embedding + Rerank Server with uv..."
         export UV_PYTHON=3.13
-        exec $RUN_CMD
+        
+        # launchd や Ctrl+C で終了された時にバックグラウンドのサーバーも道連れにする
+        trap 'echo "Shutting down supervisor..."; stop_server; exit 0' SIGINT SIGTERM
+        
+        $RUN_CMD &
+        
+        # モニターをフォアグラウンドループで動かし、スクリプトをスーパーバイザーとして常駐させる
+        monitor_loop
     fi
 }
 
@@ -61,4 +107,3 @@ case "$1" in
         start_server
         ;;
 esac
-
