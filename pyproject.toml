@@ -1,5 +1,5 @@
 [project]
-name = "embed-reranker"
+name = "mlx-embed-rerank-server"
 version = "0.1.0"
 description = "MLX-based embedding and reranking API server for Japanese and multilingual RAG"
 readme = "README.md"

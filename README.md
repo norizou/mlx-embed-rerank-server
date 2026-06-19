@@ -1,63 +1,61 @@
 # MLX Embedding & Reranker Server
 
-Apple Silicon ネイティブの **MLX** バックエンドを利用し、  
-高精度な Embedding モデルと Reranker モデルを  
-**単一の FastAPI サーバ・単一ポート** で提供する軽量 API サーバです。
+English | [日本語](README_JA.md)
 
-LLM 実行基盤（LM Studio 等）とは分離し、  
-RAG 用の **Embedding / Rerank 専用エンジン** として動作します。
+A lightweight API server providing both high-accuracy Embedding and Reranking capabilities on a **single FastAPI process and port**, optimized with a native **MLX** backend for Apple Silicon.
 
----
-
-## ✨ 特徴
-
-- ✅ Embedding と Rerank を **1 プロセス / 1 ポート** に統合
-- ✅ OpenAI 互換風 API
-- ✅ Apple Silicon ネイティブ **MLX** 高速推論
-- ✅ 多言語対応（Gemma 3 300M, BGE-M3 等）
-- ✅ マルチモーダル対応（Qwen3-VL Embedding/Reranker 2B）
-- ✅ 自動フォールバック：Qwen3-VL モデルは 30 秒未使用で自動アンロードし、デフォルトモデルに戻る
-- ✅ GGUF 不要
-- ✅ OpenWebUI / 自作RAG / LangChain から利用可能
+It is designed to run independently from your LLM server (e.g., LM Studio, Ollama) as a dedicated **Embedding / Reranking engine** for Retrieval-Augmented Generation (RAG) workflows.
 
 ---
 
-## 🧠 提供 API
+## ✨ Features
 
-### ベース URL
+- ✅ **Unified Process & Port**: Integrates Embedding and Reranking into a single FastAPI process (port `1235` by default).
+- ✅ **OpenAI-Compatible API**: `/v1/embeddings` endpoint supports OpenAI-compatible input structure.
+- ✅ **Apple Silicon Native**: Powered by Apple's MLX library for high-speed GPU-accelerated inference on Mac hardware.
+- ✅ **State-of-the-Art Models**: Supports highly capable models like Gemma 3 300M, BGE-M3, and Qwen3-0.6B.
+- ✅ **Multimodal Capabilities**: Supports Qwen3-VL Embedding/Reranker (2B) models with `instruction` parameters.
+- ✅ **Smart Auto-Fallback**: Unloads heavy multimodal Qwen3-VL models after 30 seconds of inactivity, clearing the Metal cache and preloading lightweight default models to optimize GPU memory usage.
+- ✅ **Zero GGUF Overhead**: Runs directly using MLX community weights without needing GGUF conversions.
+- ✅ **Ready for Integration**: Easily plugs into Open WebUI, Dify, LangChain, or custom RAG pipelines.
 
+---
+
+## 🧠 API Specifications
+
+### Base URL
+```
 http://localhost:1235
+```
 
-### エンドポイント一覧
+### Endpoints
 
-| Method | Path            | 説明 |
-|------|------------------|------|
-| GET  | `/health`        | ヘルスチェック |
-| POST | `/v1/embeddings` | 日本語埋め込み生成 |
-| POST | `/v1/rerank`     | クエリ＋文書の再ランキング |
+| Method | Path            | Description |
+|:-------|:----------------|:------------|
+| `GET`  | `/health`        | Health check, returning loaded and available models. |
+| `POST` | `/v1/embeddings` | Generates text/image embeddings (OpenAI-compatible). |
+| `POST` | `/v1/rerank`     | Re-ranks query and document pairs. |
 
 ---
 
-## ⏱️ 自動フォールバック（Auto Fallback）
+## ⏱️ Auto-Fallback (Smart Memory Management)
 
-Qwen3-VL 系モデル（`qwen3-vl-embedding-2b` / `qwen3-vl-reranker-2b`）は **30 秒間リクエストがないと自動的にアンロード** されます。
+To optimize unified memory on Mac hardware, heavy multimodal Qwen3-VL models (`qwen3-vl-embedding-2b` / `qwen3-vl-reranker-2b`) are **automatically unloaded after 30 seconds of inactivity**.
 
-- **ペアアンロード**: embed / rerank のどちらか一方が未使用でも、両方の Qwen3-VL モデルを同時に解放します（共有リソースを考慮）。
-- **デフォルト自動ロード**: アンロードと同時に `gemma-3-300m`（Embed）および `qwen3-0.6b`（Rerank）を自動でプリロードします。
-- **メモリ解放**: アンロード時に `mx.metal.clear_cache()` を実行し、GPU メタルメモリを即座に解放します。
+- **Paired Unload**: If either model becomes inactive, both Qwen3-VL models are unloaded together to prevent resource leaks.
+- **Default Preloading**: Simultaneously preloads the lightweight default models (`gemma-3-300m` and `qwen3-0.6b`) to ensure instant availability for standard queries.
+- **Immediate GPU Memory Release**: Calls `mx.metal.clear_cache()` upon unloading to immediately free system/unified memory.
 
-この仕様により、Qwen3-VL の重いモデルを常時メモリに保持せず、軽量なデフォルトモデルが待機状態になります。
-
-### モデル状態遷移図
+### Model State Transition Diagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle : サーバー起動
-    Idle --> Qwen3VL_Loaded : /v1/embeddings または /v1/rerank (qwen3-vl)
-    Qwen3VL_Loaded --> Qwen3VL_Loaded : 30秒以内にリクエスト (last_used 更新)
-    Qwen3VL_Loaded --> Fallback : 30秒未使用 (タイマー発火)
-    Fallback --> Idle : デフォルトモデル待機中
-    Fallback --> Qwen3VL_Loaded : /v1/embeddings または /v1/rerank (qwen3-vl)
+    [*] --> Idle : Server Startup
+    Idle --> Qwen3VL_Loaded : /v1/embeddings or /v1/rerank (qwen3-vl requested)
+    Qwen3VL_Loaded --> Qwen3VL_Loaded : Request received within 30s (last_used updated)
+    Qwen3VL_Loaded --> Fallback : Inactive for 30s (Timer trigger)
+    Fallback --> Idle : Default models preloaded and waiting
+    Fallback --> Qwen3VL_Loaded : Request received (qwen3-vl requested)
 
     state Qwen3VL_Loaded {
         [*] --> Embed_Rerank_Loaded
@@ -65,13 +63,13 @@ stateDiagram-v2
     }
 
     state Fallback {
-        [*] --> Unload_Qwen3VL : ペアアンロード
+        [*] --> Unload_Qwen3VL : Paired Unload
         Unload_Qwen3VL --> Load_Default : mx.metal.clear_cache()
         Load_Default --> [*]
     }
 ```
 
-### フォールバックシーケンス図
+### Fallback Sequence
 
 ```mermaid
 sequenceDiagram
@@ -80,266 +78,201 @@ sequenceDiagram
     participant API as FastAPI (/v1/embeddings)
     participant MM as ModelManager
     participant Timer as FallbackTimer (30s)
-    participant GPU as Apple Metal
+    participant GPU as Apple Metal GPU
 
     Client->>API: POST /v1/embeddings (qwen3-vl-embedding-2b)
     API->>MM: get_embed("qwen3-vl-embedding-2b")
     MM->>MM: emb_load() + _fix_qwen3vl_processor()
     MM-->>API: (model, processor)
-    API-->>Client: embedding result
+    API-->>Client: embedding output
 
     Client->>API: POST /v1/rerank (qwen3-vl-reranker-2b)
     API->>MM: get_rerank("qwen3-vl-reranker-2b")
     MM->>MM: emb_load() + _fix_qwen3vl_processor()
     MM-->>API: (model, processor)
-    API-->>Client: rerank result
+    API-->>Client: rerank output
 
-    Note over Client,GPU: 30秒間リクエストなし
+    Note over Client,GPU: 30 seconds of inactivity
 
     Timer->>Timer: _check_inactivity()
     Timer->>MM: qwen3vl_embed_timedout = True
     Timer->>MM: qwen3vl_rerank_timedout = True
 
-    MM->>MM: [Fallback] Unload embed 'qwen3-vl-embedding-2b' (paired unload)
-    MM->>MM: [Fallback] Unload rerank 'qwen3-vl-reranker-2b' (paired unload)
+    MM->>MM: [Fallback] Unload 'qwen3-vl-embedding-2b' (paired unload)
+    MM->>MM: [Fallback] Unload 'qwen3-vl-reranker-2b' (paired unload)
     MM->>GPU: mx.metal.clear_cache()
     MM->>MM: [Fallback] Preload default embed 'gemma-3-300m'
     MM->>MM: [Fallback] Preload default rerank 'qwen3-0.6b'
 ```
 
-### メモリ状態の比較
+---
 
-| 状態 | ロード済み Embed | ロード済み Rerank | メモリ使用量 | 次のリクエスト |
-|------|-----------------|------------------|-------------|--------------|
-| **デフォルト待機** | `gemma-3-300m` | `qwen3-0.6b` | 低（軽量） | 即座に応答 |
-| **Qwen3-VL 使用中** | `qwen3-vl-embedding-2b` | `qwen3-vl-reranker-2b` | 高（重い） | 即座に応答 |
-| **Qwen3-VL → フォールバック** | `gemma-3-300m` | `qwen3-0.6b` | 低（解放済） | 即座に応答 |
+## 🔧 Available Models (MLX)
+
+You can select a model by passing the `model` parameter in your API request. If omitted, the default model will be loaded.
+
+### Embedding (Default: `gemma-3-300m`)
+| Model ID | Hugging Face Model | Description / Strengths |
+| :--- | :--- | :--- |
+| `gemma-3-300m` | `embedding-gemma-300m-bf16` | Latest Gemma 3, fast & accurate with automatic prefix handling. |
+| `bge-m3` | `bge-m3-mlx-fp16` | Robust multilingual model, standard choice for RAG. |
+| `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | Multimodal embedding, supports instructions. |
+
+### Reranker (Default: `qwen3-0.6b`)
+| Model ID | Hugging Face Model | Description / Strengths |
+| :--- | :--- | :--- |
+| `qwen3-0.6b` | `Qwen3-Reranker-0.6B-mxfp8` | Generative cross-encoder (Yes/No), highly accurate. |
+| `qwen3-vl-reranker-2b` | `Qwen3-VL-Reranker-2B-mxfp8` | Multimodal reranking, supports instructions. |
 
 ---
 
-## 🔧 利用可能なモデル (MLX)
+## 📦 Directory Structure
 
-リクエスト時の `model` パラメータで切り替え可能です。未指定時はデフォルトモデルが使用されます。
-
-### Embedding (デフォルト: `gemma-3-300m`)
-| ID | モデル名 (Hugging Face) | 特徴 |
-| :--- | :--- | :--- |
-| `gemma-3-300m` | `embedding-gemma-300m-bf16` | 最新 Gemma 3, プレフィックス自動付与 |
-| `bge-m3` | `bge-m3-mlx-fp16` | 定番の多言語対応モデル |
-| `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | マルチモーダル, instruction 対応 |
-
-### Reranker (デフォルト: `qwen3-0.6b`)
-| ID | モデル名 (Hugging Face) | 特徴 |
-| :--- | :--- | :--- |
-| `qwen3-0.6b` | `Qwen3-Reranker-0.6B-mxfp8` | 生成型 (Yes/No), 高精度 |
-| `qwen3-vl-reranker-2b` | `Qwen3-VL-Reranker-2B-mxfp8` | マルチモーダル, instruction 対応 |
-
-
----
-
-## 📦 ディレクトリ構成
-
-```
-embed_reranker/
-├── mlx_embed_rerank_server.py   # メインサーバー
-├── run_mlx_server.sh            # 起動・管理スクリプト
-├── pyproject.toml               # 依存関係 / uv 設定
-├── README.md                    # 本ドキュメント
-├── LICENSE                      # MIT ライセンス
-├── test-tools/                  # 動作確認用スクリプト
+```text
+mlx-embed-rerank-server/
+├── mlx_embed_rerank_server.py   # Main FastAPI server
+├── run_mlx_server.sh            # Process management / startup script
+├── pyproject.toml               # Dependencies and uv configuration
+├── README.md                    # Main documentation (English)
+├── README_JA.md                 # Documentation in Japanese
+├── LICENSE                      # MIT License
+├── test-tools/                  # Ad-hoc scripts for quick tests
 │   ├── test_mlx.py
 │   └── test_infer.py
 ├── tests/
-│   ├── test_api.py              # pytest 統合テスト
+│   ├── test_api.py              # Automated integration tests (pytest)
 │   └── data/
-│       └── test_cases.json      # テストケースデータ
+│       └── test_cases.json      # Test cases and expected outputs
 └── ...
 ```
 
 ---
 
-## 🐍 動作環境
+## 🐍 Requirements
 
-- Python **3.13（推奨）**
-- macOS (Apple Silicon)
-- **MLX 搭載**
+- macOS (Apple Silicon required)
+- Python **3.13 (Recommended)**
+- Apple MLX installed
 
 ---
 
-## 📥 セットアップ
+## 📥 Setup & Installation
 
-### 1. 依存関係インストール (uv 推奨)
+We recommend using `uv` for seamless dependency and environment management.
 
+### 1. Install Dependencies
 ```bash
 uv sync
 ```
 
 ---
 
-## ▶️ 起動方法
+## ▶️ Running the Server
 
+Start the server using the provided shell script:
 ```bash
 ./run_mlx_server.sh
 ```
 
-起動成功時：
-
+Upon successful startup, the server logs:
 ```
 Uvicorn running on http://0.0.0.0:1235
 ```
 
 ---
 
-## 🧪 動作確認（手動）
+## 🧪 Verification & Usage Examples
 
 ### Health Check
-
 ```bash
 curl http://localhost:1235/health
 ```
 
-### Embedding
-
+### Generating Embeddings
 ```bash
 curl http://localhost:1235/v1/embeddings \
   -H "Content-Type: application/json" \
-  -d '{"input": "日本語Embeddingのテスト", "input_type": "query"}'
+  -d '{"input": "Testing embeddings", "input_type": "query"}'
 ```
 
-#### instruction 指定（Qwen3-VL モデル用）
-
+#### With Custom Instructions (for Qwen3-VL)
 ```bash
 curl http://localhost:1235/v1/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3-vl-embedding-2b",
-    "input": ["テキスト1", "テキスト2"],
+    "input": ["Text snippet 1", "Text snippet 2"],
     "input_type": "document",
     "instruction": "Represent this document for retrieval."
   }'
 ```
 
-### Rerank
-
+### Reranking Documents
 ```bash
 curl http://localhost:1235/v1/rerank \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "SATA DOMのリカバリ手順",
+    "query": "SATA DOM recovery procedure",
     "documents": [
-      "SATA DOMを交換してOSを再インストールする手順",
-      "メモリ増設の手順",
-      "RAID再構築の注意点"
+      "Replacing SATA DOM and reinstalling OS",
+      "Increasing RAM capacity",
+      "Precautions for RAID rebuild"
     ],
     "top_k": 2
   }'
 ```
 
-#### instruction 指定（Qwen3-VL モデル用）
-
+#### Rerank with Custom Instructions (for Qwen3-VL)
 ```bash
 curl http://localhost:1235/v1/rerank \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3-vl-reranker-2b",
-    "query": "猫の写真",
-    "documents": ["犬の散歩", "猫の昼寝", "鳥の飛行"],
+    "query": "Cat photos",
+    "documents": ["walking the dog", "sleeping cat", "flying bird"],
     "instruction": "Retrieve images or text relevant to the user'"'"'s query."
   }'
 ```
 
 ---
 
-## 🧪 テスト（自動）
+## 🧪 Automated Testing
 
-サーバーを起動した状態で、以下を実行してください。
+Ensure your server is running, then execute the integration tests:
 
 ```bash
-# 依存関係を含めて同期
+# Sync dev dependencies
 uv sync --extra dev
 
-# テスト実行
+# Run tests
 uv run pytest tests/
 ```
 
-テスト内容：
-- `/health` — 利用可能モデルの検証
-- `/v1/embeddings` — `gemma-3-300m` / `bge-m3` / `qwen3-vl-embedding-2b` の埋め込み次元・正規化チェック
-- `/v1/rerank` — `qwen3-0.6b` / `qwen3-vl-reranker-2b` のスコア順序・妥当性チェック
+The test suite validates:
+- `/health`: Available model definitions.
+- `/v1/embeddings`: Dimensional correctness & normalization verification for `gemma-3-300m`, `bge-m3`, and `qwen3-vl-embedding-2b`.
+- `/v1/rerank`: Re-ranking scores and logical ranking correctness for `qwen3-0.6b` and `qwen3-vl-reranker-2b`.
 
-テストデータは `tests/data/test_cases.json` で管理しています。
+---
 
+## 💡 RAG Architecture Example
 
-⸻
+1. **Embed**: Vectorize your documents using `/v1/embeddings`.
+2. **Retrieve**: Fetch the top 50–100 candidate documents from your vector database.
+3. **Rerank**: Use `/v1/rerank` to narrow them down to the top 10–20 highest-quality context documents.
+4. **Generate**: Pass the ranked documents as context to your LLM.
 
-🧠 想定ユースケース（RAG）
-	1.	/v1/embeddings で全文書をベクトル化
-	2.	ベクトルDBで上位 50〜100 件取得
-	3.	/v1/rerank で top_k=10〜20 に再ランキング
-	4.	LLM（LM Studio 等）へ渡す
+### Co-existence with LLM Servers
 
-⸻
+| Role | Port / Base URL |
+| :--- | :--- |
+| **LLM Server** (LM Studio / Ollama) | `http://localhost:1234/v1` |
+| **Embed & Rerank Server** (this repo) | `http://localhost:1235` |
 
-🔗 LLM との併用例
-
-役割	URL
-LLM (LM Studio)	http://localhost:1234/v1
-Embedding / Rerank	http://localhost:1235
-
-
-⸻
-
-⚠️ 注意事項
-	•	Reranker は 文書数に比例して重くなるため、
-Embedding で候補を絞ってから使用してください。
-	•	GGUF 変換は不要・非対応です。
-
-⸻
+---
 
 ## 📜 License / Credits
 
-- **License**: MIT License (See [LICENSE](file:///Users/norihito/AI/embed_reranker/LICENSE) for details)
-- Models: [mlx-community](https://huggingface.co/mlx-community) / Google / BAAI
-- Powered by [Apple MLX](https://github.com/ml-explore/mlx) / FastAPI
-
-⸻
-
-## 📝 変更履歴
-
-### 2026-06-05 — Qwen3-VL Embedding / Reranker 2B 対応
-
-**追加**: `mlx-community/Qwen3-VL-Embedding-2B-mxfp8` と `mlx-community/Qwen3-VL-Reranker-2B-mxfp8` をサポート。
-
-- `AVAILABLE_EMBED_MODELS` / `AVAILABLE_RERANK_MODELS` に新モデルを登録
-- `compute_embeddings` / `compute_rerank` に `instruction` パラメータと `qwen3_vl_*` タイプ対応を追加
-- `EmbReq` / `RerankReq` に `instruction` フィールドを追加
-- `mlx_embeddings` が `Qwen3VLProcessor.__init__` をスキップする問題に対し、`AutoProcessor.from_pretrained` から `image_ids` / `video_ids` / `audio_ids` / `chat_template` をコピーする `_fix_qwen3vl_processor` を追加
-- 依存関係に `torch` / `torchvision` を追加
-- **自動フォールバック**: `ModelManager` に 30 秒タイマーを導入。Qwen3-VL モデルは未使用でペアアンロードし、デフォルトモデル（`gemma-3-300m` / `qwen3-0.6b`）へ自動フォールバック
-
-### 2026-04-30 — reranker を mlx_lm に移行
-
-**問題**: `mlx_embeddings.load()` で Qwen3-Reranker を読み込んでいたが、この API は embedding 専用で cross-encoder の `rank()`/`score()` を持たず、`/v1/rerank` が常に 500 エラーを返していた。
-
-**修正**: `mlx_lm.load()` で言語モデルとして正しくロードし、yes/no ロジットスコアリングを実装。
-
-```python
-# Qwen3-Reranker 専用プロンプト
-prompt = (
-    "<|im_start|>system\n"
-    "Judge whether the Document meets the requirements...<|im_end|>\n"
-    "<|im_start|>user\n"
-    "<Instruct>: {instruction}\n<Query>: {query}\n<Document>: {doc}<|im_end|>\n"
-    "<|im_start|>assistant\n<think>\n\n</think>\n\n"
-)
-
-# 最終トークンの yes/no ロジットから確率を計算
-logits = model(input_ids[None, :])
-yes_prob = softmax(logits[0, -1, yes_token_id], logits[0, -1, no_token_id])
-```
-
-ヘルスチェックに `reranker_ready` フラグを追加。
-
-⸻
-
-
+- **License**: MIT License (See [LICENSE](LICENSE) for details)
+- Models: [mlx-community](https://huggingface.co/mlx-community) / Google / BAAI / Qwen
+- Powered by [Apple MLX](https://github.com/ml-explore/mlx) and FastAPI
