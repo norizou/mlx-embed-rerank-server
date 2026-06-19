@@ -9,6 +9,12 @@ Apple Silicon ネイティブの **MLX** バックエンドを利用し、
 LLM 実行基盤（LM Studio 等）とは分離し、  
 RAG 用の **Embedding / Rerank 専用エンジン** として動作します。
 
+### 🚀 デフォルトロードモデル
+サーバー起動時、メモリ効率が良く高速な以下のモデルが自動的にロードされます：
+- **Embedding**: `gemma-3-300m` (*embedding-gemma-300m-bf16*)
+- **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
+*(※ Qwen3-VL-2B などの重い VLM モデルは、リクエスト時のみロードされ、自動でメモリ解放されます)*
+
 ---
 
 ## ✨ 特徴

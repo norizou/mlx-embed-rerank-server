@@ -6,6 +6,12 @@ A lightweight API server providing both high-accuracy Embedding and Reranking ca
 
 It is designed to run independently from your LLM server (e.g., LM Studio, Ollama) as a dedicated **Embedding / Reranking engine** for Retrieval-Augmented Generation (RAG) workflows.
 
+### 🚀 Default Loaded Models
+When the server starts, it automatically loads the following highly-efficient models:
+- **Embedding**: `gemma-3-300m` (*embedding-gemma-300m-bf16*)
+- **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
+*(Heavy multimodal models like Qwen3-VL-2B are loaded dynamically on demand and unloaded automatically.)*
+
 ---
 
 ## ✨ Features
