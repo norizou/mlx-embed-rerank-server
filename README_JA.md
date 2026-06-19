@@ -9,10 +9,12 @@ Apple Silicon ネイティブの **MLX** バックエンドを利用し、
 LLM 実行基盤（LM Studio 等）とは分離し、  
 RAG 用の **Embedding / Rerank 専用エンジン** として動作します。
 
-### 🚀 デフォルトロードモデル
-サーバー起動時、メモリ効率が良く高速な以下のモデルが自動的にロードされます：
+### 🚀 デフォルトモデル
+`model` 未指定時に使用される、メモリ効率が良く高速なデフォルトモデルは以下です：
 - **Embedding**: `bge-m3` (*bge-m3-mlx-fp16*)
 - **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
+
+モデルは**起動時ではなく初回リクエスト時に遅延ロード**されます。重い Qwen3-VL モデルが未使用でアンロードされた後は、これらのデフォルトモデルが自動的にプリロードされ待機状態になります。
 *(※ Qwen3-VL-2B などの重い VLM モデルは、リクエスト時のみロードされ、自動でメモリ解放されます)*
 
 ---
@@ -60,11 +62,13 @@ Qwen3-VL 系モデル（`qwen3-vl-embedding-2b` / `qwen3-vl-reranker-2b`）は *
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle : サーバー起動
-    Idle --> Qwen3VL_Loaded : /v1/embeddings または /v1/rerank (qwen3-vl)
+    [*] --> Empty : サーバー起動 (モデル未ロード)
+    Empty --> DefaultLoaded : 初回のデフォルトリクエスト (遅延ロード bge-m3 / qwen3-0.6b)
+    Empty --> Qwen3VL_Loaded : 初回リクエスト (qwen3-vl 指定, 遅延ロード)
+    DefaultLoaded --> Qwen3VL_Loaded : /v1/embeddings または /v1/rerank (qwen3-vl)
     Qwen3VL_Loaded --> Qwen3VL_Loaded : 30秒以内にリクエスト (last_used 更新)
     Qwen3VL_Loaded --> Fallback : 30秒未使用 (タイマー発火)
-    Fallback --> Idle : デフォルトモデル待機中
+    Fallback --> DefaultLoaded : デフォルトモデル待機中
     Fallback --> Qwen3VL_Loaded : /v1/embeddings または /v1/rerank (qwen3-vl)
 
     state Qwen3VL_Loaded {
@@ -119,6 +123,7 @@ sequenceDiagram
 
 | 状態 | ロード済み Embed | ロード済み Rerank | メモリ使用量 | 次のリクエスト |
 |------|-----------------|------------------|-------------|--------------|
+| **起動直後（未ロード）** | なし | なし | 最小 | 初回は遅延ロード |
 | **デフォルト待機** | `bge-m3` | `qwen3-0.6b` | 低（軽量） | 即座に応答 |
 | **Qwen3-VL 使用中** | `qwen3-vl-embedding-2b` | `qwen3-vl-reranker-2b` | 高（重い） | 即座に応答 |
 | **Qwen3-VL → フォールバック** | `bge-m3` | `qwen3-0.6b` | 低（解放済） | 即座に応答 |
@@ -132,8 +137,9 @@ sequenceDiagram
 ### Embedding (デフォルト: `bge-m3`)
 | ID | モデル名 (Hugging Face) | 特徴 |
 | :--- | :--- | :--- |
-| `gemma-3-300m` | `embedding-gemma-300m-bf16` | 最新 Gemma 3, プレフィックス自動付与 |
+| `gemma-3-300m` | `embeddinggemma-300m-bf16` | 最新 Gemma 3, プレフィックス自動付与 |
 | `bge-m3` | `bge-m3-mlx-fp16` | 定番の多言語対応モデル |
+| `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 Embedding（テキスト専用）, 高精度 |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | マルチモーダル, instruction 対応 |
 
 ### Reranker (デフォルト: `qwen3-0.6b`)

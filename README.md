@@ -6,10 +6,12 @@ A lightweight API server providing both high-accuracy Embedding and Reranking ca
 
 It is designed to run independently from your LLM server (e.g., LM Studio, Ollama) as a dedicated **Embedding / Reranking engine** for Retrieval-Augmented Generation (RAG) workflows.
 
-### 🚀 Default Loaded Models
-When the server starts, it automatically loads the following highly-efficient models:
+### 🚀 Default Models
+The server uses the following highly-efficient models as defaults (used when no `model` is specified):
 - **Embedding**: `bge-m3` (*bge-m3-mlx-fp16*)
 - **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
+
+Models are **lazily loaded on the first request** (not at startup). After a heavy multimodal Qwen3-VL model is unloaded due to inactivity, these default models are automatically preloaded and kept warm.
 *(Heavy multimodal models like Qwen3-VL-2B are loaded dynamically on demand and unloaded automatically.)*
 
 ---
@@ -56,11 +58,13 @@ To optimize unified memory on Mac hardware, heavy multimodal Qwen3-VL models (`q
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle : Server Startup
-    Idle --> Qwen3VL_Loaded : /v1/embeddings or /v1/rerank (qwen3-vl requested)
+    [*] --> Empty : Server Startup (no models loaded)
+    Empty --> DefaultLoaded : First default request (lazy load bge-m3 / qwen3-0.6b)
+    Empty --> Qwen3VL_Loaded : First request (qwen3-vl requested, lazy load)
+    DefaultLoaded --> Qwen3VL_Loaded : /v1/embeddings or /v1/rerank (qwen3-vl requested)
     Qwen3VL_Loaded --> Qwen3VL_Loaded : Request received within 30s (last_used updated)
     Qwen3VL_Loaded --> Fallback : Inactive for 30s (Timer trigger)
-    Fallback --> Idle : Default models preloaded and waiting
+    Fallback --> DefaultLoaded : Default models preloaded and waiting
     Fallback --> Qwen3VL_Loaded : Request received (qwen3-vl requested)
 
     state Qwen3VL_Loaded {
@@ -120,8 +124,9 @@ You can select a model by passing the `model` parameter in your API request. If 
 ### Embedding (Default: `bge-m3`)
 | Model ID | Hugging Face Model | Description / Strengths |
 | :--- | :--- | :--- |
-| `gemma-3-300m` | `embedding-gemma-300m-bf16` | Latest Gemma 3, fast & accurate with automatic prefix handling. |
+| `gemma-3-300m` | `embeddinggemma-300m-bf16` | Latest Gemma 3, fast & accurate with automatic prefix handling. |
 | `bge-m3` | `bge-m3-mlx-fp16` | Robust multilingual model, standard choice for RAG. |
+| `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 embedding (text only), high quality. |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | Multimodal embedding, supports instructions. |
 
 ### Reranker (Default: `qwen3-0.6b`)

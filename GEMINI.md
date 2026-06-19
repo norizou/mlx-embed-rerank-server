@@ -15,6 +15,9 @@
 ### Architecture
 The server exposes an OpenAI-compatible `/v1/embeddings` endpoint and a specialized `/v1/rerank` (or `/rerank`) endpoint. The MLX backend provides significantly lower latency and memory footprint on Mac hardware.
 
+**Model Loading:**
+Models are lazily loaded on the first request (not preloaded at startup). The default models (`bge-m3` for embedding, `qwen3-0.6b` for reranking) are used when no `model` parameter is specified.
+
 **Auto Fallback Feature:**
 To optimize memory usage, the heavy Qwen3-VL models are automatically unloaded (paired unload) if there is no request for 30 seconds. The server then preloads the lightweight default models (`bge-m3` and `qwen3-0.6b`) and clears the Metal cache.
 

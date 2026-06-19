@@ -65,7 +65,7 @@ Vision Language Model (VLM) ベースの Embedding / Reranker を追加し、vlm
 4.  **自動フォールバック（メモリ最適化）**:
     - `ModelManager` に 30 秒間隔の `_check_inactivity` タイマーを追加。
     - Qwen3-VL 系モデルは 30 秒未使用で **ペアアンロード**（embed / rerank 両方同時解放）。
-    - アンロードと同時にデフォルトモデル（`gemma-3-300m` / `qwen3-0.6b`）をプリロード。
+    - アンロードと同時にデフォルトモデル（`bge-m3` / `qwen3-0.6b`）をプリロード。
     - アンロード時に `mx.metal.clear_cache()` を実行し GPU メモリを即座に解放。
 5.  **依存関係の追加**:
     - `torch` / `torchvision` を追加（Vision モデルのロードに必須）。
