@@ -11,7 +11,7 @@ RAG 用の **Embedding / Rerank 専用エンジン** として動作します。
 
 ### 🚀 デフォルトロードモデル
 サーバー起動時、メモリ効率が良く高速な以下のモデルが自動的にロードされます：
-- **Embedding**: `gemma-3-300m` (*embedding-gemma-300m-bf16*)
+- **Embedding**: `bge-m3` (*bge-m3-mlx-fp16*)
 - **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
 *(※ Qwen3-VL-2B などの重い VLM モデルは、リクエスト時のみロードされ、自動でメモリ解放されます)*
 
@@ -51,7 +51,7 @@ http://localhost:1235
 Qwen3-VL 系モデル（`qwen3-vl-embedding-2b` / `qwen3-vl-reranker-2b`）は **30 秒間リクエストがないと自動的にアンロード** されます。
 
 - **ペアアンロード**: embed / rerank のどちらか一方が未使用でも、両方の Qwen3-VL モデルを同時に解放します（共有リソースを考慮）。
-- **デフォルト自動ロード**: アンロードと同時に `gemma-3-300m`（Embed）および `qwen3-0.6b`（Rerank）を自動でプリロードします。
+- **デフォルト自動ロード**: アンロードと同時に `bge-m3`（Embed）および `qwen3-0.6b`（Rerank）を自動でプリロードします。
 - **メモリ解放**: アンロード時に `mx.metal.clear_cache()` を実行し、GPU メタルメモリを即座に解放します。
 
 この仕様により、Qwen3-VL の重いモデルを常時メモリに保持せず、軽量なデフォルトモデルが待機状態になります。
@@ -111,7 +111,7 @@ sequenceDiagram
     MM->>MM: [Fallback] Unload embed 'qwen3-vl-embedding-2b' (paired unload)
     MM->>MM: [Fallback] Unload rerank 'qwen3-vl-reranker-2b' (paired unload)
     MM->>GPU: mx.metal.clear_cache()
-    MM->>MM: [Fallback] Preload default embed 'gemma-3-300m'
+    MM->>MM: [Fallback] Preload default embed 'bge-m3'
     MM->>MM: [Fallback] Preload default rerank 'qwen3-0.6b'
 ```
 
@@ -119,9 +119,9 @@ sequenceDiagram
 
 | 状態 | ロード済み Embed | ロード済み Rerank | メモリ使用量 | 次のリクエスト |
 |------|-----------------|------------------|-------------|--------------|
-| **デフォルト待機** | `gemma-3-300m` | `qwen3-0.6b` | 低（軽量） | 即座に応答 |
+| **デフォルト待機** | `bge-m3` | `qwen3-0.6b` | 低（軽量） | 即座に応答 |
 | **Qwen3-VL 使用中** | `qwen3-vl-embedding-2b` | `qwen3-vl-reranker-2b` | 高（重い） | 即座に応答 |
-| **Qwen3-VL → フォールバック** | `gemma-3-300m` | `qwen3-0.6b` | 低（解放済） | 即座に応答 |
+| **Qwen3-VL → フォールバック** | `bge-m3` | `qwen3-0.6b` | 低（解放済） | 即座に応答 |
 
 ---
 
@@ -129,7 +129,7 @@ sequenceDiagram
 
 リクエスト時の `model` パラメータで切り替え可能です。未指定時はデフォルトモデルが使用されます。
 
-### Embedding (デフォルト: `gemma-3-300m`)
+### Embedding (デフォルト: `bge-m3`)
 | ID | モデル名 (Hugging Face) | 特徴 |
 | :--- | :--- | :--- |
 | `gemma-3-300m` | `embedding-gemma-300m-bf16` | 最新 Gemma 3, プレフィックス自動付与 |
@@ -330,7 +330,7 @@ Embedding で候補を絞ってから使用してください。
 - `EmbReq` / `RerankReq` に `instruction` フィールドを追加
 - `mlx_embeddings` が `Qwen3VLProcessor.__init__` をスキップする問題に対し、`AutoProcessor.from_pretrained` から `image_ids` / `video_ids` / `audio_ids` / `chat_template` をコピーする `_fix_qwen3vl_processor` を追加
 - 依存関係に `torch` / `torchvision` を追加
-- **自動フォールバック**: `ModelManager` に 30 秒タイマーを導入。Qwen3-VL モデルは未使用でペアアンロードし、デフォルトモデル（`gemma-3-300m` / `qwen3-0.6b`）へ自動フォールバック
+- **自動フォールバック**: `ModelManager` に 30 秒タイマーを導入。Qwen3-VL モデルは未使用でペアアンロードし、デフォルトモデル（`bge-m3` / `qwen3-0.6b`）へ自動フォールバック
 
 ### 2026-04-30 — reranker を mlx_lm に移行
 

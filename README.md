@@ -8,7 +8,7 @@ It is designed to run independently from your LLM server (e.g., LM Studio, Ollam
 
 ### 🚀 Default Loaded Models
 When the server starts, it automatically loads the following highly-efficient models:
-- **Embedding**: `gemma-3-300m` (*embedding-gemma-300m-bf16*)
+- **Embedding**: `bge-m3` (*bge-m3-mlx-fp16*)
 - **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
 *(Heavy multimodal models like Qwen3-VL-2B are loaded dynamically on demand and unloaded automatically.)*
 
@@ -49,7 +49,7 @@ http://localhost:1235
 To optimize unified memory on Mac hardware, heavy multimodal Qwen3-VL models (`qwen3-vl-embedding-2b` / `qwen3-vl-reranker-2b`) are **automatically unloaded after 30 seconds of inactivity**.
 
 - **Paired Unload**: If either model becomes inactive, both Qwen3-VL models are unloaded together to prevent resource leaks.
-- **Default Preloading**: Simultaneously preloads the lightweight default models (`gemma-3-300m` and `qwen3-0.6b`) to ensure instant availability for standard queries.
+- **Default Preloading**: Simultaneously preloads the lightweight default models (`bge-m3` and `qwen3-0.6b`) to ensure instant availability for standard queries.
 - **Immediate GPU Memory Release**: Calls `mx.metal.clear_cache()` upon unloading to immediately free system/unified memory.
 
 ### Model State Transition Diagram
@@ -107,7 +107,7 @@ sequenceDiagram
     MM->>MM: [Fallback] Unload 'qwen3-vl-embedding-2b' (paired unload)
     MM->>MM: [Fallback] Unload 'qwen3-vl-reranker-2b' (paired unload)
     MM->>GPU: mx.metal.clear_cache()
-    MM->>MM: [Fallback] Preload default embed 'gemma-3-300m'
+    MM->>MM: [Fallback] Preload default embed 'bge-m3'
     MM->>MM: [Fallback] Preload default rerank 'qwen3-0.6b'
 ```
 
@@ -117,7 +117,7 @@ sequenceDiagram
 
 You can select a model by passing the `model` parameter in your API request. If omitted, the default model will be loaded.
 
-### Embedding (Default: `gemma-3-300m`)
+### Embedding (Default: `bge-m3`)
 | Model ID | Hugging Face Model | Description / Strengths |
 | :--- | :--- | :--- |
 | `gemma-3-300m` | `embedding-gemma-300m-bf16` | Latest Gemma 3, fast & accurate with automatic prefix handling. |
