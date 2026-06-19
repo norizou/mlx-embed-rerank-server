@@ -1,23 +1,22 @@
 # GEMINI.md - Project Context
 
 ## Project Overview
-**embed-reranker** is a lightweight, Japanese-specialized API server that provides both Embedding and Reranking capabilities in a single process. It is optimized for RAG (Retrieval-Augmented Generation) workflows and supports both standard PyTorch (MPS) and Apple Silicon native MLX backends.
+**embed-reranker** is a lightweight, Japanese-specialized API server that provides both Embedding and Reranking capabilities in a single process. It is optimized for RAG (Retrieval-Augmented Generation) workflows and is built entirely on the Apple Silicon native MLX backend for high performance.
 
 ### Key Technologies
 - **Language:** Python 3.13+ (managed by `uv`)
 - **Web Framework:** FastAPI + Uvicorn
-- **AI/ML Backends:**
-  - **MLX (Primary):** Native Apple Silicon optimization. **Current focus.**
-  - **PyTorch (Legacy/Compatibility):** MPS/CPU support. (Note: The Ruri-based implementation is currently **frozen**.)
-- **Models (MLX Backend):**
-  - **Embedding:** `mlx-community/embedding-gemma-300m-bf16`, `mlx-community/bge-m3-mlx-fp16`
-  - **Reranker:** `mlx-community/Qwen3-Reranker-0.6B-mxfp8`, `mlx-community/japanese-bge-reranker-v2-m3`
-- **Models (Ruri Backend):**
-  - **Embedding:** `cl-nagoya/ruri-v3-70m`
-  - **Reranker:** `cl-nagoya/ruri-v3-reranker-310m`
+- **AI/ML Backend:**
+  - **MLX:** Native Apple Silicon optimization. The server runs completely on MLX.
+- **Models:**
+  - **Embedding:** `mlx-community/bge-m3-mlx-fp16` (Default), `mlx-community/embeddinggemma-300m-bf16`, `mlx-community/Qwen3-Embedding-0.6B-mxfp8`, `mlx-community/Qwen3-VL-Embedding-2B-mxfp8` (Multimodal)
+  - **Reranker:** `mlx-community/Qwen3-Reranker-0.6B-mxfp8` (Default), `mlx-community/Qwen3-VL-Reranker-2B-mxfp8` (Multimodal)
 
 ### Architecture
 The server exposes an OpenAI-compatible `/v1/embeddings` endpoint and a specialized `/v1/rerank` (or `/rerank`) endpoint. The MLX backend provides significantly lower latency and memory footprint on Mac hardware.
+
+**Auto Fallback Feature:**
+To optimize memory usage, the heavy Qwen3-VL models are automatically unloaded (paired unload) if there is no request for 30 seconds. The server then preloads the lightweight default models (`bge-m3` and `qwen3-0.6b`) and clears the Metal cache.
 
 ## Building and Running
 
@@ -34,18 +33,12 @@ uv sync
 ### Running the Server
 The server runs on port `1235` by default.
 
-#### MLX Version (Recommended for Mac)
 ```bash
 # Start via the MLX shell script
 ./run_mlx_server.sh
 
 # Or directly via uv
-uv run uvicorn mlx_embed_rerank_server:app --host 127.0.0.1 --port 1235
-```
-
-#### Ruri/PyTorch Version (Legacy/Frozen)
-```bash
-./run_ruri_server.sh
+uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port 1235
 ```
 
 ### Automated Startup (macOS)
@@ -58,18 +51,17 @@ The project is configured to auto-start via `launchd` on macOS.
 ### Coding Style
 - **Type Hinting:** Extensive use of Pydantic models for request/response validation.
 - **Inference:** MLX implementation uses `mlx-embeddings` and `mlx-lm` for high-performance inference.
-- **Portability:** Dual-backend support allows for development on various hardware while targeting MLX for production/local use on Mac.
+- **Memory Management:** Implements thread-safe model caching and timeout-based memory freeing.
 
 ### API Specifications
-- **Health Check:** `GET /health` returns status and backend/model info.
-- **Embedding:** `POST /v1/embeddings` (OpenAI-compatible format).
-- **Rerank:** `POST /v1/rerank` or `POST /rerank` (Accepts `query`, `documents`, and `top_k`).
+- **Health Check:** `GET /health` returns status and loaded/available models.
+- **Embedding:** `POST /v1/embeddings` (OpenAI-compatible format, supports `instruction` parameter for VLM).
+- **Rerank:** `POST /v1/rerank` or `POST /rerank` (Accepts `query`, `documents`, `top_k`, and `instruction`).
 
 ## Key Files
 - `mlx_embed_rerank_server.py`: The high-performance MLX implementation.
-- `ruri_embed_rerank_server.py`: The PyTorch-based implementation. (Legacy/Frozen)
-- `run_mlx_server.sh`: MLX startup script using `uv`.
-- `pyproject.toml`: Project metadata and dependencies (pinned to Python 3.13).
-- `MIGRATION_SUMMARY.md`: Summary of the migration to `uv`.
-- `MLX対応検討.md`: Design notes for MLX integration.
+- `run_mlx_server.sh`: Startup and management script.
+- `pyproject.toml`: Project metadata and dependencies (pinned to Python 3.13+).
+- `README.md`: Comprehensive documentation including usage and auto-fallback sequences.
+- `MIGRATION_SUMMARY.md`: Summary of the migration to `uv` and MLX/Qwen3-VL.
 - `AUTO_STARTUP_SUMMARY.md`: Documentation for the `launchd` setup.

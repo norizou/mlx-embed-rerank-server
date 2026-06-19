@@ -40,6 +40,11 @@ AVAILABLE_EMBED_MODELS = {
         "id": "mlx-community/Qwen3-VL-Embedding-2B-mxfp8",
         "type": "qwen3_vl_embed",
         "description": "Qwen3-VL Embedding 2B (Multimodal, mlx-embeddings)"
+    },
+    "qwen3-0.6b-embed": {
+        "id": "mlx-community/Qwen3-Embedding-0.6B-mxfp8",
+        "type": "standard",
+        "description": "Qwen3 Embedding 0.6B (Text only)"
     }
 }
 
@@ -56,7 +61,7 @@ AVAILABLE_RERANK_MODELS = {
     }
 }
 
-DEFAULT_EMBED = "gemma-3-300m"
+DEFAULT_EMBED = "bge-m3"
 DEFAULT_RERANK = "qwen3-0.6b"
 
 # =====================

@@ -30,3 +30,13 @@ logs/
 # Environment
 .env
 .env.local
+
+# uv
+.uv_cache/
+
+# Local databases
+chroma_db/
+
+# IDE
+.vscode/
+

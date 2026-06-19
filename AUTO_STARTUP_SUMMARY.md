@@ -5,7 +5,7 @@ macOSのログイン時に `mlx_embed_rerank_server.py` が自動的に起動す
 ## 構成要素
 
 ### 1. 起動用シェルスクリプト
-- **パス**: `/Users/norihito/AI/embed_reranker/run_mlx_server.sh`
+- **パス**: `[プロジェクトの絶対パス]/run_mlx_server.sh` (例: `/Users/norihito/AI/embed_reranker/run_mlx_server.sh`)
 - **役割**: カレントディレクトリの移動、および `uv` によるサーバー起動（ポート: 1235）を行います。
 - **機能**: `kill`, `restart`, `status` オプションによるプロセス管理が可能です。
 

@@ -30,7 +30,7 @@
 
 - **パッケージの追加**: `uv add <package_name>`
 - **パッケージの削除**: `uv remove <package_name>`
-- **サーバーの起動**: `uv run python ruri_embed_rerank_server.py`
+- **サーバーの起動**: `./run_mlx_server.sh` または `uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port 1235`
 - **環境の同期**: `uv sync`
 
 ---

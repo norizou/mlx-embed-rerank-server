@@ -1,8 +1,8 @@
 {
   "health": {
     "expected_status": "ok",
-    "expected_embed_models": ["gemma-3-300m", "bge-m3"],
-    "expected_rerank_models": ["qwen3-0.6b"]
+    "expected_embed_models": ["gemma-3-300m", "bge-m3", "qwen3-vl-embedding-2b"],
+    "expected_rerank_models": ["qwen3-0.6b", "qwen3-vl-reranker-2b"]
   },
   "embedding": {
     "gemma-3-300m": {
@@ -16,6 +16,12 @@
       "input_type": "query",
       "expected_dim": 1024,
       "expected_count": 2
+    },
+    "qwen3-vl-embedding-2b": {
+      "input": ["テストドキュメント1", "テストドキュメント2"],
+      "input_type": "document",
+      "expected_dim": 2048,
+      "expected_count": 2
     }
   },
   "rerank": {
@@ -28,6 +34,12 @@
       ],
       "top_k": 2,
       "expected_first_index": 0
+    },
+    "qwen3-vl-reranker-2b": {
+      "query": "猫",
+      "documents": ["犬", "猫"],
+      "top_k": 2,
+      "expected_first_index": 1
     }
   }
 }

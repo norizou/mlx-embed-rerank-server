@@ -1,7 +1,7 @@
-# Ruri Embedding & Reranker Server
+# MLX Embedding & Reranker Server
 
-日本語特化の埋め込みモデル **cl-nagoya/ruri-v3-70m** と  
-日本語 CrossEncoder リランカ **cl-nagoya/ruri-v3-reranker-310m** を  
+Apple Silicon ネイティブの **MLX** バックエンドを利用し、  
+高精度な Embedding モデルと Reranker モデルを  
 **単一の FastAPI サーバ・単一ポート** で提供する軽量 API サーバです。
 
 LLM 実行基盤（LM Studio 等）とは分離し、  
@@ -145,6 +145,10 @@ embed_reranker/
 ├── run_mlx_server.sh            # 起動・管理スクリプト
 ├── pyproject.toml               # 依存関係 / uv 設定
 ├── README.md                    # 本ドキュメント
+├── LICENSE                      # MIT ライセンス
+├── test-tools/                  # 動作確認用スクリプト
+│   ├── test_mlx.py
+│   └── test_infer.py
 ├── tests/
 │   ├── test_api.py              # pytest 統合テスト
 │   └── data/
@@ -294,6 +298,7 @@ Embedding で候補を絞ってから使用してください。
 
 ## 📜 License / Credits
 
+- **License**: MIT License (See [LICENSE](file:///Users/norihito/AI/embed_reranker/LICENSE) for details)
 - Models: [mlx-community](https://huggingface.co/mlx-community) / Google / BAAI
 - Powered by [Apple MLX](https://github.com/ml-explore/mlx) / FastAPI
 

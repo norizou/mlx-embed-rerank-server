@@ -44,7 +44,7 @@ class TestHealth:
 
 
 class TestEmbedding:
-    @pytest.mark.parametrize("model_name", ["gemma-3-300m", "bge-m3"])
+    @pytest.mark.parametrize("model_name", ["gemma-3-300m", "bge-m3", "qwen3-vl-embedding-2b"])
     def test_embedding_models(self, client: httpx.Client, test_cases: dict, model_name: str):
         case = test_cases["embedding"][model_name]
         payload = {
@@ -70,7 +70,7 @@ class TestEmbedding:
 
 
 class TestRerank:
-    @pytest.mark.parametrize("model_name", ["qwen3-0.6b"])
+    @pytest.mark.parametrize("model_name", ["qwen3-0.6b", "qwen3-vl-reranker-2b"])
     def test_rerank_models(self, client: httpx.Client, test_cases: dict, model_name: str):
         case = test_cases["rerank"][model_name]
         payload = {

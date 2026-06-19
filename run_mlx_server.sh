@@ -7,7 +7,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
 
 # Command definition
-RUN_CMD="/opt/homebrew/bin/uv run --cache-dir /Users/norihito/AI/.uv_cache uvicorn mlx_embed_rerank_server:app --host 127.0.0.1 --port $PORT"
+RUN_CMD="uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port $PORT"
 
 function stop_server() {
     PID=$(lsof -ti:$PORT)
