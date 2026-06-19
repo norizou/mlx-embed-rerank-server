@@ -179,6 +179,12 @@ Upon successful startup, the server logs:
 Uvicorn running on http://0.0.0.0:1235
 ```
 
+### 🛡️ Supervisor & Auto-Restart
+The `run_mlx_server.sh` script runs as a foreground supervisor to ensure high availability:
+- **Health Monitoring**: It pings the `/health` endpoint every 30 seconds to check server responsiveness.
+- **Hang Detection & Auto-Restart**: If the server fails to respond within 10 seconds for **2 consecutive checks** (a ~60-second unresponsiveness window), the supervisor considers it a hang state, safely kills the process, and automatically restarts the server.
+- **Grace Period**: This 2-strike system provides a grace period, preventing false positives and unwanted restarts while the server is legitimately busy loading heavy models (like Qwen3-VL) or processing massive Rerank requests.
+
 ---
 
 ## 🧪 Verification & Usage Examples
