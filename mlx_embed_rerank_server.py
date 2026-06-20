@@ -36,6 +36,11 @@ AVAILABLE_EMBED_MODELS = {
         "type": "standard",
         "description": "BGE-M3 (Multilingual, High precision)"
     },
+    "bge-m3-8bit": {
+        "id": "mlx-community/bge-m3-mlx-8bit",
+        "type": "standard",
+        "description": "BGE-M3 8-bit (Multilingual, Quantized)"
+    },
     "qwen3-vl-embedding-2b": {
         "id": "mlx-community/Qwen3-VL-Embedding-2B-mxfp8",
         "type": "qwen3_vl_embed",
