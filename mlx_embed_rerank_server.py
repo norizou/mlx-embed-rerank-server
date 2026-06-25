@@ -102,17 +102,22 @@ AVAILABLE_AUDIO_MODELS = {
         "type": "asr",
         "description": "Qwen3 ASR 1.7B 8-bit (Speech-to-Text, Best accuracy)"
     },
-    "qwen3-tts-0.6b-base-4bit": {
-        "id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit",
+    "qwen3-tts-0.6b-base-8bit": {
+        "id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
         "type": "tts",
-        "description": "Qwen3 TTS 0.6B Base 4-bit (Text-to-Speech, Voice Clone)"
+        "description": "Qwen3 TTS 0.6B Base 8-bit (Text-to-Speech, Voice Clone)"
+    },
+    "qwen3-tts-1.7b-base-8bit": {
+        "id": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+        "type": "tts",
+        "description": "Qwen3 TTS 1.7B Base 8-bit (Text-to-Speech, Voice Clone, Stable)"
     },
 }
 
 DEFAULT_EMBED = "bge-m3"
 DEFAULT_RERANK = "qwen3-0.6b"
 DEFAULT_ASR = "qwen3-asr-1.7b-8bit"
-DEFAULT_TTS = "qwen3-tts-0.6b-base-4bit"
+DEFAULT_TTS = "qwen3-tts-0.6b-base-8bit"
 
 # =====================
 # モデルマネージャ

@@ -10,6 +10,8 @@ It is designed to run independently from your LLM server (e.g., LM Studio, Ollam
 The server uses the following highly-efficient models as defaults (used when no `model` is specified):
 - **Embedding**: `bge-m3` (*bge-m3-mlx-fp16*)
 - **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
+- **ASR (STT)**: `qwen3-asr-1.7b-8bit` (*Qwen3-ASR-1.7B-8bit*)
+- **TTS**: `qwen3-tts-0.6b-base-8bit` (*Qwen3-TTS-12Hz-0.6B-Base-8bit*)
 
 Models are **lazily loaded on the first request** (not at startup). After a heavy multimodal Qwen3-VL model is unloaded due to inactivity, these default models are automatically preloaded and kept warm.
 *(Heavy multimodal models like Qwen3-VL-2B are loaded dynamically on demand and unloaded automatically.)*
@@ -23,6 +25,7 @@ Models are **lazily loaded on the first request** (not at startup). After a heav
 - ✅ **Apple Silicon Native**: Powered by Apple's MLX library for high-speed GPU-accelerated inference on Mac hardware.
 - ✅ **State-of-the-Art Models**: Supports highly capable models like Gemma 3 300M, BGE-M3, and Qwen3-0.6B.
 - ✅ **Multimodal Capabilities**: Supports Qwen3-VL Embedding/Reranker (2B) models with `instruction` parameters.
+- ✅ **Audio Capabilities**: OpenAI-compatible STT (`/v1/audio/transcriptions`) and TTS (`/v1/audio/speech`) endpoints powered by Qwen3-ASR/TTS models.
 - ✅ **Smart Auto-Fallback**: Unloads heavy multimodal Qwen3-VL models after 30 seconds of inactivity, clearing the Metal cache and preloading lightweight default models to optimize GPU memory usage.
 - ✅ **Zero GGUF Overhead**: Runs directly using MLX community weights without needing GGUF conversions.
 - ✅ **Ready for Integration**: Easily plugs into Open WebUI, Dify, LangChain, or custom RAG pipelines.
@@ -38,11 +41,13 @@ http://localhost:1235
 
 ### Endpoints
 
-| Method | Path            | Description |
-|:-------|:----------------|:------------|
-| `GET`  | `/health`        | Health check, returning loaded and available models. |
-| `POST` | `/v1/embeddings` | Generates text/image embeddings (OpenAI-compatible). |
-| `POST` | `/v1/rerank`     | Re-ranks query and document pairs. |
+| Method | Path                    | Description |
+|:-------|:------------------------|:------------|
+| `GET`  | `/health`               | Health check, returning loaded and available models. |
+| `POST` | `/v1/embeddings`        | Generates text/image embeddings (OpenAI-compatible). |
+| `POST` | `/v1/rerank`            | Re-ranks query and document pairs. |
+| `POST` | `/v1/audio/transcriptions` | Transcribes audio files to text (STT, OpenAI-compatible). |
+| `POST` | `/v1/audio/speech`      | Generates speech from text (TTS, OpenAI-compatible). |
 
 ---
 
@@ -126,6 +131,7 @@ You can select a model by passing the `model` parameter in your API request. If 
 | :--- | :--- | :--- |
 | `gemma-3-300m` | `embeddinggemma-300m-bf16` | Latest Gemma 3, fast & accurate with automatic prefix handling. |
 | `bge-m3` | `bge-m3-mlx-fp16` | Robust multilingual model, standard choice for RAG. |
+| `bge-m3-8bit` | `bge-m3-mlx-8bit` | BGE-M3 8-bit quantized, memory-efficient multilingual model. |
 | `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 embedding (text only), high quality. |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | Multimodal embedding, supports instructions. |
 
@@ -134,6 +140,14 @@ You can select a model by passing the `model` parameter in your API request. If 
 | :--- | :--- | :--- |
 | `qwen3-0.6b` | `Qwen3-Reranker-0.6B-mxfp8` | Generative cross-encoder (Yes/No), highly accurate. |
 | `qwen3-vl-reranker-2b` | `Qwen3-VL-Reranker-2B-mxfp8` | Multimodal reranking, supports instructions. |
+
+### Audio (STT Default: `qwen3-asr-1.7b-8bit` / TTS Default: `qwen3-tts-0.6b-base-8bit`)
+| Model ID | Hugging Face Model | Description / Strengths |
+| :--- | :--- | :--- |
+| `qwen3-asr-0.6b-8bit` | `Qwen3-ASR-0.6B-8bit` | Speech-to-Text (ASR), 8-bit quantized, fast. |
+| `qwen3-asr-1.7b-8bit` | `Qwen3-ASR-1.7B-8bit` | Speech-to-Text (ASR), 8-bit quantized, best accuracy (default). |
+| `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | Text-to-Speech (TTS), 8-bit quantized, supports voice cloning (default). |
+| `qwen3-tts-1.7b-base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | Text-to-Speech (TTS), 8-bit quantized, most stable speech tempo. |
 
 ---
 
@@ -164,6 +178,7 @@ mlx-embed-rerank-server/
 - macOS (Apple Silicon required)
 - Python **3.13 (Recommended)**
 - Apple MLX installed
+- **ffmpeg** (for audio file processing with mp4/m4a/webm support): `brew install ffmpeg`
 
 ---
 
@@ -251,6 +266,44 @@ curl http://localhost:1235/v1/rerank \
   }'
 ```
 
+### Speech-to-Text (STT)
+```bash
+# Transcribe an audio file (wav, mp3, mp4, etc.)
+curl -X POST http://localhost:1235/v1/audio/transcriptions \
+  -F file="@sample.wav" \
+  -F model="qwen3-asr-1.7b-8bit" \
+  -F language="en"
+```
+
+### Text-to-Speech (TTS)
+```bash
+# Generate speech from text (mp3, wav, flac)
+curl -X POST http://localhost:1235/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Hello, this is a test.",
+    "model": "qwen3-tts-0.6b-base-8bit",
+    "voice": "Chelsie",
+    "response_format": "mp3"
+  }' \
+  --output speech.mp3
+```
+
+#### TTS with Voice Cloning
+```bash
+# Clone a voice from a reference audio file
+curl -X POST http://localhost:1235/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "This is a cloned voice.",
+    "model": "qwen3-tts-0.6b-base-8bit",
+    "ref_audio": "/path/to/reference.wav",
+    "ref_text": "Reference audio transcript",
+    "response_format": "wav"
+  }' \
+  --output cloned.wav
+```
+
 ---
 
 ## 🧪 Automated Testing
@@ -266,9 +319,11 @@ uv run pytest tests/
 ```
 
 The test suite validates:
-- `/health`: Available model definitions.
+- `/health`: Available model definitions (including audio models).
 - `/v1/embeddings`: Dimensional correctness & normalization verification for `gemma-3-300m`, `bge-m3`, and `qwen3-vl-embedding-2b`.
 - `/v1/rerank`: Re-ranking scores and logical ranking correctness for `qwen3-0.6b` and `qwen3-vl-reranker-2b`.
+- `/v1/audio/transcriptions`: STT endpoint accessibility.
+- `/v1/audio/speech`: TTS endpoint accessibility.
 
 ---
 

@@ -13,6 +13,8 @@ RAG 用の **Embedding / Rerank 専用エンジン** として動作します。
 `model` 未指定時に使用される、メモリ効率が良く高速なデフォルトモデルは以下です：
 - **Embedding**: `bge-m3` (*bge-m3-mlx-fp16*)
 - **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
+- **ASR (STT)**: `qwen3-asr-1.7b-8bit` (*Qwen3-ASR-1.7B-8bit*)
+- **TTS**: `qwen3-tts-0.6b-base-8bit` (*Qwen3-TTS-12Hz-0.6B-Base-8bit*)
 
 モデルは**起動時ではなく初回リクエスト時に遅延ロード**されます。重い Qwen3-VL モデルが未使用でアンロードされた後は、これらのデフォルトモデルが自動的にプリロードされ待機状態になります。
 *(※ Qwen3-VL-2B などの重い VLM モデルは、リクエスト時のみロードされ、自動でメモリ解放されます)*
@@ -26,6 +28,7 @@ RAG 用の **Embedding / Rerank 専用エンジン** として動作します。
 - ✅ Apple Silicon ネイティブ **MLX** 高速推論
 - ✅ 多言語対応（Gemma 3 300M, BGE-M3 等）
 - ✅ マルチモーダル対応（Qwen3-VL Embedding/Reranker 2B）
+- ✅ 音声対応：OpenAI互換の STT（`/v1/audio/transcriptions`）・TTS（`/v1/audio/speech`）エンドポイント（Qwen3-ASR/TTS モデル）
 - ✅ 自動フォールバック：Qwen3-VL モデルは 30 秒未使用で自動アンロードし、デフォルトモデルに戻る
 - ✅ GGUF 不要
 - ✅ OpenWebUI / 自作RAG / LangChain から利用可能
@@ -40,11 +43,13 @@ http://localhost:1235
 
 ### エンドポイント一覧
 
-| Method | Path            | 説明 |
-|------|------------------|------|
-| GET  | `/health`        | ヘルスチェック |
-| POST | `/v1/embeddings` | 日本語埋め込み生成 |
-| POST | `/v1/rerank`     | クエリ＋文書の再ランキング |
+| Method | Path                    | 説明 |
+|------|--------------------------|------|
+| GET  | `/health`               | ヘルスチェック |
+| POST | `/v1/embeddings`        | 日本語埋め込み生成 |
+| POST | `/v1/rerank`            | クエリ＋文書の再ランキング |
+| POST | `/v1/audio/transcriptions` | 音声ファイルの文字起こし（STT） |
+| POST | `/v1/audio/speech`      | テキストから音声合成（TTS） |
 
 ---
 
@@ -139,6 +144,7 @@ sequenceDiagram
 | :--- | :--- | :--- |
 | `gemma-3-300m` | `embeddinggemma-300m-bf16` | 最新 Gemma 3, プレフィックス自動付与 |
 | `bge-m3` | `bge-m3-mlx-fp16` | 定番の多言語対応モデル |
+| `bge-m3-8bit` | `bge-m3-mlx-8bit` | BGE-M3 8-bit量子化, メモリ効率良い多言語モデル |
 | `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 Embedding（テキスト専用）, 高精度 |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | マルチモーダル, instruction 対応 |
 
@@ -147,6 +153,14 @@ sequenceDiagram
 | :--- | :--- | :--- |
 | `qwen3-0.6b` | `Qwen3-Reranker-0.6B-mxfp8` | 生成型 (Yes/No), 高精度 |
 | `qwen3-vl-reranker-2b` | `Qwen3-VL-Reranker-2B-mxfp8` | マルチモーダル, instruction 対応 |
+
+### Audio (STT デフォルト: `qwen3-asr-1.7b-8bit` / TTS デフォルト: `qwen3-tts-0.6b-base-8bit`)
+| ID | モデル名 (Hugging Face) | 特徴 |
+| :--- | :--- | :--- |
+| `qwen3-asr-0.6b-8bit` | `Qwen3-ASR-0.6B-8bit` | 音声認識（STT）, 8-bit量子化, 高速 |
+| `qwen3-asr-1.7b-8bit` | `Qwen3-ASR-1.7B-8bit` | 音声認識（STT）, 8-bit量子化, 最高精度（デフォルト） |
+| `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | 音声合成（TTS）, 8-bit量子化, ボイスクローン対応（デフォルト） |
+| `qwen3-tts-1.7b-base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | 音声合成（TTS）, 8-bit量子化, 発話速度が最も安定 |
 
 
 ---
@@ -178,6 +192,7 @@ mlx-embed-rerank-server/
 - Python **3.13（推奨）**
 - macOS (Apple Silicon)
 - **MLX 搭載**
+- **ffmpeg**（mp4/m4a/webm等の音声ファイル処理用）: `brew install ffmpeg`
 
 ---
 
@@ -269,6 +284,47 @@ curl http://localhost:1235/v1/rerank \
   }'
 ```
 
+### 音声認識（STT）
+
+```bash
+# 音声ファイルの文字起こし（wav, mp3, mp4等）
+curl -X POST http://localhost:1235/v1/audio/transcriptions \
+  -F file="@sample.wav" \
+  -F model="qwen3-asr-1.7b-8bit" \
+  -F language="ja"
+```
+
+### 音声合成（TTS）
+
+```bash
+# テキストから音声生成（mp3, wav, flac）
+curl -X POST http://localhost:1235/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "こんにちは、これはテストです。",
+    "model": "qwen3-tts-0.6b-base-8bit",
+    "voice": "Chelsie",
+    "response_format": "mp3"
+  }' \
+  --output speech.mp3
+```
+
+#### ボイスクローン
+
+```bash
+# リファレンス音声から声をクローン
+curl -X POST http://localhost:1235/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "この声はクローンされたものです。",
+    "model": "qwen3-tts-0.6b-base-8bit",
+    "ref_audio": "/path/to/reference.wav",
+    "ref_text": "リファレンス音声の転記",
+    "response_format": "wav"
+  }' \
+  --output cloned.wav
+```
+
 ---
 
 ## 🧪 テスト（自動）
@@ -284,9 +340,11 @@ uv run pytest tests/
 ```
 
 テスト内容：
-- `/health` — 利用可能モデルの検証
+- `/health` — 利用可能モデルの検証（音声モデルを含む）
 - `/v1/embeddings` — `gemma-3-300m` / `bge-m3` / `qwen3-vl-embedding-2b` の埋め込み次元・正規化チェック
 - `/v1/rerank` — `qwen3-0.6b` / `qwen3-vl-reranker-2b` のスコア順序・妥当性チェック
+- `/v1/audio/transcriptions` — STTエンドポイントのアクセシビリティ
+- `/v1/audio/speech` — TTSエンドポイントのアクセシビリティ
 
 テストデータは `tests/data/test_cases.json` で管理しています。
 
@@ -320,7 +378,7 @@ Embedding で候補を絞ってから使用してください。
 ## 📜 License / Credits
 
 - **License**: MIT License (See [LICENSE](file:///Users/norihito/AI/embed_reranker/LICENSE) for details)
-- Models: [mlx-community](https://huggingface.co/mlx-community) / Google / BAAI
+- Models: [mlx-community](https://huggingface.co/mlx-community) / Google / BAAI / Qwen
 - Powered by [Apple MLX](https://github.com/ml-explore/mlx) / FastAPI
 
 ⸻

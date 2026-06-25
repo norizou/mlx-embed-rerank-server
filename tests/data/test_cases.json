@@ -2,7 +2,8 @@
   "health": {
     "expected_status": "ok",
     "expected_embed_models": ["gemma-3-300m", "bge-m3", "qwen3-vl-embedding-2b"],
-    "expected_rerank_models": ["qwen3-0.6b", "qwen3-vl-reranker-2b"]
+    "expected_rerank_models": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
+    "expected_audio_models": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit"]
   },
   "embedding": {
     "gemma-3-300m": {

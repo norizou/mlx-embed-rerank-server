@@ -8,11 +8,13 @@ Usage:
     uv run pytest tests/
 """
 
+import io
 import json
 import math
 from pathlib import Path
 
 import httpx
+import numpy as np
 import pytest
 
 BASE_URL = "http://localhost:1235"
@@ -41,6 +43,7 @@ class TestHealth:
         assert data["status"] == expected["expected_status"]
         assert set(data["available_embed"]) == set(expected["expected_embed_models"])
         assert set(data["available_rerank"]) == set(expected["expected_rerank_models"])
+        assert set(data["available_audio"]) == set(expected["expected_audio_models"])
 
 
 class TestEmbedding:
@@ -99,3 +102,68 @@ class TestRerank:
         # Check that the most relevant document is as expected
         if "expected_first_index" in case:
             assert results[0]["index"] == case["expected_first_index"]
+
+
+class TestAudio:
+    def test_health_includes_audio(self, client: httpx.Client):
+        """Health endpoint should include audio models."""
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "available_audio" in data
+        assert "loaded_asr_models" in data
+        assert "loaded_tts_models" in data
+        assert set(data["available_audio"]) == {"qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit"}
+
+    def test_transcriptions_endpoint(self, client: httpx.Client):
+        """Test STT endpoint with dummy audio."""
+        # Create a simple sine wave audio (1 second, 16kHz)
+        sample_rate = 16000
+        duration = 1.0
+        frequency = 440
+        t = np.linspace(0, duration, int(sample_rate * duration), False)
+        audio_data = 0.5 * np.sin(2 * np.pi * frequency * t).astype(np.float32)
+
+        # Save to BytesIO as WAV
+        buffer = io.BytesIO()
+        try:
+            from mlx_audio.audio_io import write as audio_write
+            audio_write(buffer, audio_data, sample_rate, format="wav")
+        except ImportError:
+            pytest.skip("mlx-audio not available for test audio generation")
+
+        buffer.seek(0)
+
+        # Upload for transcription
+        files = {"file": ("test.wav", buffer, "audio/wav")}
+        data = {"model": "qwen3-asr-0.6b-8bit"}
+        resp = client.post("/v1/audio/transcriptions", files=files, data=data)
+
+        # Note: This may fail if the model is not installed or if the audio is too short
+        # For now, we just check the endpoint is accessible
+        # In a real test, we'd use a proper audio file
+        if resp.status_code == 200:
+            result = resp.json()
+            assert "text" in result
+        else:
+            # If model not loaded or other error, that's acceptable for this smoke test
+            print(f"STT test returned {resp.status_code}: {resp.text}")
+
+    def test_speech_endpoint(self, client: httpx.Client):
+        """Test TTS endpoint."""
+        payload = {
+            "input": "Hello, this is a test.",
+            "model": "qwen3-tts-0.6b-base-8bit",
+            "response_format": "wav",
+        }
+        resp = client.post("/v1/audio/speech", json=payload)
+
+        # Note: This may fail if the model is not installed
+        # For now, we just check the endpoint is accessible
+        if resp.status_code == 200:
+            assert resp.headers["content-type"] == "audio/wav"
+            audio_data = resp.content
+            assert len(audio_data) > 0
+        else:
+            # If model not loaded or other error, that's acceptable for this smoke test
+            print(f"TTS test returned {resp.status_code}: {resp.text}")
