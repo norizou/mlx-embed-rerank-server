@@ -1,5 +1,6 @@
 #!/bin/bash
 PORT=1235
+HEALTH_PORT=1236  # ヘルスチェック専用ポート (別スレッドで常時応答)
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
@@ -34,8 +35,9 @@ function monitor_loop() {
     while true; do
         sleep $CHECK_INTERVAL
         
-        # /health にアクセスしてHTTPステータスコードを取得
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time $CURL_TIMEOUT http://localhost:$PORT/health)
+        # ヘルスチェック専用ポート (別スレッド) にアクセス
+        # MLX推論中でもメインのイベントループをブロックせずに応答可能
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time $CURL_TIMEOUT http://localhost:$HEALTH_PORT/health)
         
         if [ "$HTTP_CODE" = "200" ]; then
             if [ $fail_count -gt 0 ]; then

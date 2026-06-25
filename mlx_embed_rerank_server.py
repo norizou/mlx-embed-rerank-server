@@ -1,12 +1,18 @@
 import math
 import time
+import io
+import os
+import uuid
 import numpy as np
 import mlx.core as mx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, Form, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Union, Optional, Dict, Any
 import uvicorn
 import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json as _json
 
 # MLX libraries
 try:
@@ -20,6 +26,25 @@ try:
 except ImportError:
     print("Warning: mlx-lm not found.")
     lm_load = None
+
+# MLX Audio libraries
+try:
+    from mlx_audio.stt.utils import load_model as stt_load_model
+except ImportError:
+    print("Warning: mlx-audio STT not found.")
+    stt_load_model = None
+
+try:
+    from mlx_audio.tts.utils import load_model as tts_load_model
+except ImportError:
+    print("Warning: mlx-audio TTS not found.")
+    tts_load_model = None
+
+try:
+    from mlx_audio.audio_io import write as audio_write
+except ImportError:
+    print("Warning: mlx-audio audio_io not found.")
+    audio_write = None
 
 # =====================
 # モデル設定定義
@@ -66,8 +91,28 @@ AVAILABLE_RERANK_MODELS = {
     }
 }
 
+AVAILABLE_AUDIO_MODELS = {
+    "qwen3-asr-0.6b-8bit": {
+        "id": "mlx-community/Qwen3-ASR-0.6B-8bit",
+        "type": "asr",
+        "description": "Qwen3 ASR 0.6B 8-bit (Speech-to-Text, Fast)"
+    },
+    "qwen3-asr-1.7b-8bit": {
+        "id": "mlx-community/Qwen3-ASR-1.7B-8bit",
+        "type": "asr",
+        "description": "Qwen3 ASR 1.7B 8-bit (Speech-to-Text, Best accuracy)"
+    },
+    "qwen3-tts-0.6b-base-4bit": {
+        "id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit",
+        "type": "tts",
+        "description": "Qwen3 TTS 0.6B Base 4-bit (Text-to-Speech, Voice Clone)"
+    },
+}
+
 DEFAULT_EMBED = "bge-m3"
 DEFAULT_RERANK = "qwen3-0.6b"
+DEFAULT_ASR = "qwen3-asr-1.7b-8bit"
+DEFAULT_TTS = "qwen3-tts-0.6b-base-4bit"
 
 # =====================
 # モデルマネージャ
@@ -77,6 +122,8 @@ class ModelManager:
     def __init__(self, inactivity_timeout: int = 30):
         self.embed_cache = {}
         self.rerank_cache = {}
+        self.asr_cache = {}
+        self.tts_cache = {}
         self.last_used = {}
         self.lock = threading.Lock()
         self.inactivity_timeout = inactivity_timeout
@@ -208,6 +255,38 @@ class ModelManager:
                 self._load_rerank_unlocked(name, time.time())
             self.last_used[name] = time.time()
             return self.rerank_cache[name], AVAILABLE_RERANK_MODELS[name]
+
+    def get_asr(self, name: str):
+        if name not in AVAILABLE_AUDIO_MODELS:
+            raise HTTPException(status_code=400, detail=f"Unsupported ASR model: {name}")
+        config = AVAILABLE_AUDIO_MODELS[name]
+        if config["type"] != "asr":
+            raise HTTPException(status_code=400, detail=f"Model {name} is not an ASR model")
+        with self.lock:
+            if name not in self.asr_cache:
+                print(f"Loading ASR model: {config['id']}...")
+                if stt_load_model is None:
+                    raise HTTPException(status_code=500, detail="mlx-audio STT not available")
+                self.asr_cache[name] = stt_load_model(config['id'])
+                self.last_used[name] = time.time()
+            self.last_used[name] = time.time()
+            return self.asr_cache[name]
+
+    def get_tts(self, name: str):
+        if name not in AVAILABLE_AUDIO_MODELS:
+            raise HTTPException(status_code=400, detail=f"Unsupported TTS model: {name}")
+        config = AVAILABLE_AUDIO_MODELS[name]
+        if config["type"] != "tts":
+            raise HTTPException(status_code=400, detail=f"Model {name} is not a TTS model")
+        with self.lock:
+            if name not in self.tts_cache:
+                print(f"Loading TTS model: {config['id']}...")
+                if tts_load_model is None:
+                    raise HTTPException(status_code=500, detail="mlx-audio TTS not available")
+                self.tts_cache[name] = tts_load_model(config['id'])
+                self.last_used[name] = time.time()
+            self.last_used[name] = time.time()
+            return self.tts_cache[name]
 
 manager = ModelManager()
 
@@ -381,9 +460,145 @@ def health():
         "status": "ok",
         "loaded_embed_models": list(manager.embed_cache.keys()),
         "loaded_rerank_models": list(manager.rerank_cache.keys()),
+        "loaded_asr_models": list(manager.asr_cache.keys()),
+        "loaded_tts_models": list(manager.tts_cache.keys()),
         "available_embed": list(AVAILABLE_EMBED_MODELS.keys()),
         "available_rerank": list(AVAILABLE_RERANK_MODELS.keys()),
+        "available_audio": list(AVAILABLE_AUDIO_MODELS.keys()),
     }
+
+# =====================
+# Audio Endpoints
+# =====================
+
+class TranscriptionReq(BaseModel):
+    model: Optional[str] = DEFAULT_ASR
+    language: Optional[str] = None
+
+@app.post("/v1/audio/transcriptions")
+async def audio_transcriptions(
+    file: UploadFile = File(...),
+    model: str = Form(DEFAULT_ASR),
+    language: Optional[str] = Form(None),
+):
+    """Transcribe audio using an STT model (OpenAI-compatible)."""
+    if audio_write is None:
+        raise HTTPException(status_code=500, detail="mlx-audio audio_io not available")
+
+    # 1. アップロードされた音声を一時ファイルに書き出し
+    #    (mlx-audio の audio_io.read(BytesIO) は m4a 等の moov 末尾配置で
+    #     ffmpeg へのパイプ入力がシーク不可となり空配列を返すバグがあるため、
+    #     bytes を直接ファイルに書いてモデル内部の load_audio にファイルパスを渡す)
+    suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+    tmp_path = f"/tmp/stt_{uuid.uuid4()}{suffix}"
+    data = await file.read()
+    with open(tmp_path, "wb") as f:
+        f.write(data)
+
+    try:
+        # 2. モデルをlazy load
+        stt_model = manager.get_asr(model)
+
+        # 3. 推論実行
+        kwargs = {}
+        if language:
+            kwargs["language"] = language
+        result = stt_model.generate(tmp_path, **kwargs)
+
+        # 4. resultから.textを取得して返却
+        text = result.text if hasattr(result, "text") else str(result)
+        return {"text": text}
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+class SpeechReq(BaseModel):
+    input: str
+    model: Optional[str] = DEFAULT_TTS
+    voice: Optional[str] = None
+    response_format: Optional[str] = "mp3"
+    speed: Optional[float] = 1.0
+    ref_audio: Optional[str] = None
+    ref_text: Optional[str] = None
+
+@app.post("/v1/audio/speech")
+async def audio_speech(req: SpeechReq):
+    """Generate speech audio from text (OpenAI-compatible)."""
+    if audio_write is None:
+        raise HTTPException(status_code=500, detail="mlx-audio audio_io not available")
+
+    model_name = req.model or DEFAULT_TTS
+    tts_model = manager.get_tts(model_name)
+
+    # model.generate() はジェネレータ
+    generate_kwargs = {}
+    if req.voice:
+        generate_kwargs["voice"] = req.voice
+    if req.speed and req.speed != 1.0:
+        generate_kwargs["speed"] = req.speed
+    if req.ref_audio:
+        generate_kwargs["ref_audio"] = req.ref_audio
+    if req.ref_text:
+        generate_kwargs["ref_text"] = req.ref_text
+
+    # 全チャンクを収集
+    audio_chunks = []
+    sample_rate = None
+    for result in tts_model.generate(req.input, **generate_kwargs):
+        audio_chunks.append(result.audio)
+        if sample_rate is None:
+            sample_rate = result.sample_rate
+
+    if not audio_chunks:
+        raise HTTPException(status_code=400, detail="No audio generated")
+
+    # 結合してエンコード
+    concatenated = np.concatenate(audio_chunks)
+    buffer = io.BytesIO()
+    audio_write(buffer, concatenated, sample_rate, format=req.response_format)
+    buffer.seek(0)
+
+    content_type_map = {
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "flac": "audio/flac",
+        "ogg": "audio/ogg",
+    }
+
+    return StreamingResponse(
+        buffer,
+        media_type=content_type_map.get(req.response_format, "audio/mpeg"),
+        headers={
+            "Content-Disposition": f"attachment; filename=speech.{req.response_format}"
+        },
+    )
+
+# =====================
+# ヘルスチェック専用サーバー (別スレッド)
+# MLX推論でメインのイベントループがブロックされても
+# スーパーバイザーのヘルスチェックに応答できるようにする
+# =====================
+HEALTH_PORT = 1236
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = _json.dumps({"status": "ok"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass  # suppress access logs
+
+def _start_health_server():
+    server = HTTPServer(("0.0.0.0", HEALTH_PORT), _HealthHandler)
+    server.serve_forever()
+
+_health_thread = threading.Thread(target=_start_health_server, daemon=True)
+_health_thread.start()
+print(f"Health-check server started on port {HEALTH_PORT}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=1235)
