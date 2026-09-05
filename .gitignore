@@ -40,3 +40,6 @@ chroma_db/
 # IDE
 .vscode/
 
+# Foam (editor workspace data)
+.foam/
+
