@@ -9,6 +9,9 @@ dependencies = [
     "uvicorn[standard]>=0.27",
     "mlx",
     "mlx-embeddings",
+    "mlx-lm",
+    "mlx-audio>=0.3.0",
+    "python-multipart",
     "numpy",
 ]
 
@@ -20,7 +23,11 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "vl: requires the Qwen3-VL models (needs torch/torchvision)",
+    "audio: exercises the STT/TTS endpoints (slow, loads audio models)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

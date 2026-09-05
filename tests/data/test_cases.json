@@ -1,30 +1,80 @@
 {
+  "server": {
+    "base_url": "http://localhost:1235",
+    "health_probe_url": "http://localhost:1236"
+  },
   "health": {
     "expected_status": "ok",
-    "expected_embed_models": ["gemma-3-300m", "bge-m3", "qwen3-vl-embedding-2b"],
+    "expected_embed_models": [
+      "gemma-3-300m",
+      "bge-m3",
+      "bge-m3-8bit",
+      "qwen3-vl-embedding-2b",
+      "qwen3-0.6b-embed"
+    ],
     "expected_rerank_models": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
-    "expected_audio_models": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit"]
+    "expected_audio_models": [
+      "qwen3-asr-0.6b-8bit",
+      "qwen3-asr-1.7b-8bit",
+      "qwen3-tts-0.6b-base-8bit",
+      "qwen3-tts-1.7b-base-8bit"
+    ],
+    "expected_loaded_keys": [
+      "loaded_embed_models",
+      "loaded_rerank_models",
+      "loaded_asr_models",
+      "loaded_tts_models"
+    ],
+    "defaults": {
+      "embed": "bge-m3",
+      "rerank": "qwen3-0.6b",
+      "asr": "qwen3-asr-1.7b-8bit",
+      "tts": "qwen3-tts-0.6b-base-8bit"
+    }
   },
   "embedding": {
     "gemma-3-300m": {
       "input": ["日本語のテスト文書です", "Another document for testing"],
       "input_type": "document",
       "expected_dim": 768,
-      "expected_count": 2
+      "expected_count": 2,
+      "prefix_sensitive": true,
+      "requires_vl": false
     },
     "bge-m3": {
       "input": ["クエリのテスト", "ドキュメントのテスト"],
       "input_type": "query",
       "expected_dim": 1024,
-      "expected_count": 2
+      "expected_count": 2,
+      "prefix_sensitive": false,
+      "requires_vl": false
+    },
+    "bge-m3-8bit": {
+      "input": ["量子化モデルのテスト", "8bit quantized model test"],
+      "input_type": "document",
+      "expected_dim": 1024,
+      "expected_count": 2,
+      "prefix_sensitive": false,
+      "requires_vl": false
+    },
+    "qwen3-0.6b-embed": {
+      "input": ["Qwen3 埋め込みのテスト", "Qwen3 embedding test"],
+      "input_type": "document",
+      "expected_dim": 1024,
+      "expected_count": 2,
+      "prefix_sensitive": false,
+      "requires_vl": false
     },
     "qwen3-vl-embedding-2b": {
       "input": ["テストドキュメント1", "テストドキュメント2"],
       "input_type": "document",
       "expected_dim": 2048,
-      "expected_count": 2
+      "expected_count": 2,
+      "prefix_sensitive": false,
+      "requires_vl": true
     }
   },
+  "embedding_default_model": "bge-m3",
   "rerank": {
     "qwen3-0.6b": {
       "query": "日本語のテスト",
@@ -34,13 +84,50 @@
         "英語のドキュメント"
       ],
       "top_k": 2,
-      "expected_first_index": 0
+      "expected_first_index": 0,
+      "score_range": [0.0, 1.0],
+      "instruction_sensitive": false,
+      "requires_vl": false
     },
     "qwen3-vl-reranker-2b": {
       "query": "猫",
       "documents": ["犬", "猫"],
       "top_k": 2,
-      "expected_first_index": 1
+      "expected_first_index": 1,
+      "score_range": null,
+      "instruction_sensitive": true,
+      "requires_vl": true
+    }
+  },
+  "rerank_default_model": "qwen3-0.6b",
+  "audio": {
+    "stt": {
+      "model": "qwen3-asr-0.6b-8bit",
+      "language": "ja",
+      "sample_rate": 16000,
+      "duration_sec": 1.0,
+      "frequency": 440
+    },
+    "tts": {
+      "model": "qwen3-tts-0.6b-base-8bit",
+      "input": "これはテストです。",
+      "response_format": "wav",
+      "expected_content_type": "audio/wav"
+    }
+  },
+  "errors": {
+    "unknown_model_name": "no-such-model-xyz",
+    "expected_status": {
+      "embeddings_unknown_model": 500,
+      "rerank_unknown_model": 400,
+      "stt_unknown_model": 400,
+      "tts_unknown_model": 400,
+      "stt_wrong_type_model": 400,
+      "tts_wrong_type_model": 400
+    },
+    "wrong_type": {
+      "tts_model_for_stt": "qwen3-tts-0.6b-base-8bit",
+      "asr_model_for_tts": "qwen3-asr-0.6b-8bit"
     }
   }
 }
