@@ -67,6 +67,35 @@ Vision Language Model (VLM) ベースの Embedding / Reranker を追加し、vlm
     - Qwen3-VL 系モデルは 30 秒未使用で **ペアアンロード**（embed / rerank 両方同時解放）。
     - アンロードと同時にデフォルトモデル（`bge-m3` / `qwen3-0.6b`）をプリロード。
     - アンロード時に `mx.metal.clear_cache()` を実行し GPU メモリを即座に解放。
-5.  **依存関係の追加**:
-    - `torch` / `torchvision` を追加（Vision モデルのロードに必須）。
-    - `transformers` を `5.6.2` → `5.10.2` にアップグレード。
+5.  **依存関係の扱い**:
+    - Qwen3-VL 系のロードには `torch` / `torchvision` が必要（`transformers` の `AutoImageProcessor` 経由）。
+      ただしこれらは `pyproject.toml` の依存には**含めていない**（他モデルは torch 不要で動くため）。
+      Qwen3-VL を使う環境でのみ `uv pip install torch torchvision` を個別実行する。未導入の場合、
+      `qwen3-vl-*` へのリクエストは `AutoImageProcessor requires the Torchvision library` により HTTP 500 になる。
+    - `transformers` は `mlx-embeddings` の推移的依存として導入される（`pyproject.toml` には明示していない）。
+
+---
+
+## 追記：STT / TTS（音声）対応と 8bit 統一 (2026-06-26)
+
+Qwen3-ASR / Qwen3-TTS を同一プロセスに統合し、OpenAI 互換の音声エンドポイントを追加しました。
+
+### 変更点
+1.  **エンドポイントの追加**:
+    - `POST /v1/audio/transcriptions`（STT、multipart/form-data）
+    - `POST /v1/audio/speech`（TTS、ボイスクローン対応、mp3/wav/flac/ogg 出力）
+2.  **モデル管理の拡張**: `AVAILABLE_AUDIO_MODELS` と `ModelManager.get_asr()` / `get_tts()` を追加。ロードは `mlx_audio.stt.utils` / `mlx_audio.tts.utils` を使用。音声モデルは自動アンロードの対象外。
+3.  **依存関係の追加**: `mlx-lm`、`mlx-audio>=0.3.0`、`python-multipart` を `pyproject.toml` に追加。mp4/m4a/webm の入力にはシステムの `ffmpeg` が必要。
+4.  **量子化の統一**: ベンチマークの結果、4bit 版は精度・安定性で劣るため削除し、ASR / TTS とも 8bit に統一。デフォルトは ASR `qwen3-asr-1.7b-8bit`、TTS `qwen3-tts-0.6b-base-8bit`。
+5.  **ヘルスチェック専用サーバー**: MLX 推論が uvicorn のイベントループをブロックし、スーパーバイザーに誤って再起動される問題への対策として、ポート `1236` に `http.server` ベースの軽量ヘルスサーバーをデーモンスレッドで追加。`run_mlx_server.sh` の監視先を 1235 → 1236 に変更。
+6.  **Embedding モデルの追加**: 省メモリ用途向けに `bge-m3-8bit` を追加（Embedding は計 5 モデル）。
+
+計測結果と選定根拠は `BENCHMARK_REPORT.md` を参照。
+
+---
+
+## 補足：パスについて
+
+本ドキュメント中のパス例 `/Users/norihito/AI/embed_reranker` は移行当時のものです。
+現在のリポジトリ配置は `/Users/norihito/Projects/AI/Workspace/embed_reranker` で、
+launchd の plist もこのパスを参照しています。

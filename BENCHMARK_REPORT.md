@@ -18,7 +18,7 @@ categories:
 summary: |
   mlx-embed-rerank-server の統合ベンチマーク。Embedding 4モデル、Reranker 2モデル、
   STT/ASR 5モデル（うち2モデルを10回反復ベンチマーク）、TTS 3モデル（10回反復ベンチマーク）の精度と速度を比較。
-  デフォルト構成: bge-m3 (Embedding) + qwen3-0.6b (Reranker) + qwen3-asr-1.7b-8bit (ASR) + qwen3-tts-0.6b-base-4bit (TTS)。
+  デフォルト構成: bge-m3 (Embedding) + qwen3-0.6b (Reranker) + qwen3-asr-1.7b-8bit (ASR) + qwen3-tts-0.6b-base-8bit (TTS)。
 test_environment:
   machine: Apple Silicon (macOS Darwin 25.5.0)
   memory: 64GB
