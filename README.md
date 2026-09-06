@@ -41,6 +41,8 @@ http://localhost:1235
 ```
 A dedicated health-check server also listens on `http://localhost:1236` (see [Supervisor](#️-supervisor--auto-restart)).
 
+> **Note:** Use `http://localhost:1235/health` for client and load-balancer health checks. Port `1236` is reserved for `run_mlx_server.sh`'s internal hang detection and should not be used externally.
+
 ### Endpoints
 
 | Method | Path                    | Description |
@@ -476,7 +478,7 @@ Notes:
 | :--- | :--- |
 | **LLM Server** (LM Studio / Ollama) | `http://localhost:1234/v1` |
 | **Embed & Rerank Server** (this repo) | `http://localhost:1235` |
-| **Health probe only** (this repo) | `http://localhost:1236/health` |
+| **Supervisor-only health probe** (this repo) | `http://localhost:1236/health` |
 
 ---
 

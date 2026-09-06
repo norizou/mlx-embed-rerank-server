@@ -37,6 +37,8 @@ curl http://localhost:1235/health   # ロード済み／利用可能モデルを
 curl http://localhost:1236/health   # スーパーバイザーが監視している軽量プローブ
 ```
 
+> **注意:** 外部監視には `http://localhost:1235/health` を使用してください。`http://localhost:1236/health` は `run_mlx_server.sh` の内部ハング検知専用です。
+
 ### サービス自体の停止（自動起動を無効化したい場合）
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.norihito.embed-reranker.plist
