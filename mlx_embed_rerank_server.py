@@ -525,6 +525,8 @@ class SpeechReq(BaseModel):
     speed: Optional[float] = 1.0
     ref_audio: Optional[str] = None
     ref_text: Optional[str] = None
+    lang_code: Optional[str] = "auto"
+    max_tokens: Optional[int] = None
 
 @app.post("/v1/audio/speech")
 async def audio_speech(req: SpeechReq):
@@ -545,6 +547,15 @@ async def audio_speech(req: SpeechReq):
         generate_kwargs["ref_audio"] = req.ref_audio
     if req.ref_text:
         generate_kwargs["ref_text"] = req.ref_text
+    if req.lang_code and req.lang_code != "auto":
+        generate_kwargs["lang_code"] = req.lang_code
+    # ICL (ref_audio + ref_text のボイスクローン) は split_pattern による分割を行わず
+    # 入力テキスト全体を 1 回の生成で処理するため、既定の max_tokens=4096 では
+    # 長文が途中で切れる。非 ICL 経路は max_tokens が「セグメントあたり」なので既定で足りる。
+    if req.max_tokens:
+        generate_kwargs["max_tokens"] = req.max_tokens
+    elif req.ref_audio and req.ref_text:
+        generate_kwargs["max_tokens"] = 8192
 
     # 全チャンクを収集
     audio_chunks = []

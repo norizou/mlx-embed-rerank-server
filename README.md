@@ -407,7 +407,16 @@ curl -X POST http://localhost:1235/v1/audio/speech \
   --output speech.mp3
 ```
 
-`response_format` maps to `audio/mpeg` (mp3), `audio/wav` (wav), `audio/flac` (flac) and `audio/ogg` (ogg); anything else falls back to `audio/mpeg`. `voice`, `speed`, `ref_audio` and `ref_text` are forwarded to the model only when set (`speed` only when it differs from `1.0`).
+`response_format` maps to `audio/mpeg` (mp3), `audio/wav` (wav), `audio/flac` (flac) and `audio/ogg` (ogg); anything else falls back to `audio/mpeg`. `voice`, `speed`, `ref_audio`, `ref_text`, `lang_code` and `max_tokens` are forwarded to the model only when set (`speed` only when it differs from `1.0`, `lang_code` only when it differs from `auto`).
+
+| Parameter | Default | Description |
+|---|---|---|
+| `voice` | none | Speaker name for multi-speaker models (e.g. `Chelsie`, `Ethan`) |
+| `speed` | `1.0` | Speaking rate; not forwarded when it equals `1.0` |
+| `lang_code` | `"auto"` | Language code (`japanese`, `english`, `chinese`, …). Anything but `auto` puts a language ID into the codec prefill |
+| `max_tokens` | automatic | Generation budget; see below when omitted |
+
+When `max_tokens` is omitted it defaults to **8192 for voice cloning (ICL)**. ICL does not split the text on `split_pattern` — it generates the whole input in a single pass — so mlx-audio's default of 4096 truncates long inputs. (The non-ICL path applies `max_tokens` *per segment*, where the default is sufficient.)
 
 #### TTS with Voice Cloning
 ```bash

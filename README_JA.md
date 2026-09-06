@@ -440,7 +440,16 @@ curl -X POST http://localhost:1235/v1/audio/speech \
   --output speech.mp3
 ```
 
-`response_format` は mp3 → `audio/mpeg`、wav → `audio/wav`、flac → `audio/flac`、ogg → `audio/ogg` にマップされ、未知の値は `audio/mpeg` にフォールバックします。`voice` / `speed` / `ref_audio` / `ref_text` は指定された場合のみモデルへ渡されます（`speed` は `1.0` 以外のときのみ）。
+`response_format` は mp3 → `audio/mpeg`、wav → `audio/wav`、flac → `audio/flac`、ogg → `audio/ogg` にマップされ、未知の値は `audio/mpeg` にフォールバックします。`voice` / `speed` / `ref_audio` / `ref_text` / `lang_code` / `max_tokens` は指定された場合のみモデルへ渡されます（`speed` は `1.0` 以外、`lang_code` は `auto` 以外のときのみ）。
+
+| パラメータ | 既定値 | 説明 |
+|---|---|---|
+| `voice` | なし | 話者名（マルチスピーカーモデル向け。例: `Chelsie`, `Ethan`） |
+| `speed` | `1.0` | 話速。`1.0` のときは渡されない |
+| `lang_code` | `"auto"` | 言語コード（`japanese`, `english`, `chinese` など）。`auto` 以外を指定すると言語 ID がコーデックのプレフィルに載る |
+| `max_tokens` | 自動 | 生成トークン数の上限。未指定時は下記のとおり自動設定 |
+
+`max_tokens` を省略した場合、**ボイスクローン（ICL）では 8192** が自動で使われます。ICL は `split_pattern` によるテキスト分割を行わず入力全体を 1 回の生成で処理するため、mlx-audio 既定の 4096 では長文が途中で切れるためです（非 ICL 経路は `max_tokens` が「セグメントあたり」なので既定で足ります）。
 
 #### ボイスクローン
 
@@ -526,6 +535,11 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-09-06 — Qwen3-TTS に `lang_code` / `max_tokens` を追加
+
+- `POST /v1/audio/speech` に `lang_code`（既定 `"auto"`）と `max_tokens`（既定 未指定）を追加
+- `max_tokens` 未指定かつボイスクローン（ICL）の場合、**自動で 8192** を設定。ICL は `split_pattern` によるテキスト分割を行わず入力全体を 1 回で生成するため、mlx-audio 既定の 4096 では長文が途中で切れていた
 
 ### 2026-06-26 — 音声モデルの 8bit 統一とヘルスチェック専用サーバー
 
