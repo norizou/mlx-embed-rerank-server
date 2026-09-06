@@ -175,6 +175,11 @@ Irodori には話速の概念がなく、**出力長そのもの**を制御し�
 | `seconds` | 出力長を秒で明示（`min_seconds` / `max_seconds` でクランプ） |
 | `duration_scale` | duration predictor の推定長に対する倍率 |
 | いずれも未指定 | duration predictor が推定（v4.1 は搭載） |
+| `min_seconds` / `max_seconds` | 推定値のクランプ範囲（既定 0.5〜30 秒） |
+
+**予測値は上限 30 秒でクランプされます。** `max_seconds` を公開していないと 30 秒を超える
+音声が生成できなくなるため、`min_seconds` とあわせて API に出しています
+（[BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §8 で 152 文字の入力が 30.00 秒ちょうどに張り付くことを確認）。
 
 この方式の副次的な効果として、**Irodori の出力長は完全に決定論的**になります。
 duration predictor が長さを決めてから Flow Matching で生成するため、

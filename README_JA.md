@@ -524,6 +524,11 @@ curl -X POST http://localhost:1235/v1/audio/speech \
 
 `ref_audio` に**配列**を渡すと各クリップを個別にエンコードして連結します（合計 120 秒まで。1 本の長時間録音より学習時の形式に近い）。上限は `max_ref_seconds` で変更できます。
 
+> **⚠️ 30 秒の上限に注意**
+> Irodori は duration predictor の推定値を `min_seconds`〜`max_seconds`（既定 0.5〜30 秒）にクランプします。
+> 30 秒を超える音声が必要な場合は `max_seconds` を明示的に引き上げてください。指定しないと
+> **入力テキストが長くても 30.00 秒ちょうどで頭打ち**になります（[BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §8）。
+
 **エンジン別のパラメータ対応**
 
 | パラメータ | Qwen3-TTS | Irodori |
@@ -539,6 +544,7 @@ curl -X POST http://localhost:1235/v1/audio/speech \
 | `num_steps` | ❌ `400` | ✅ Euler ステップ数（既定 40。`6` 程度まで下げると高速） |
 | `cfg_guidance_mode` | ❌ `400` | ✅ `independent`（既定） / `alternating`（メモリ約 1/3） |
 | `max_ref_seconds` | ❌ `400` | ✅ 参照音声の上限秒（既定はモデルの 120 秒） |
+| `min_seconds` / `max_seconds` | ❌ `400` | ✅ 推定長のクランプ範囲（既定 0.5〜30 秒）。**長文では既定の 30 秒で頭打ちになる** |
 
 `voice` / `ref_text` を **400 にせず無視**しているのは、OpenAI 互換クライアントがこれらを無条件に送るためです。一方 `instruct` は、caption 条件を持たない Irodori 版（v2 / v3 base 等）を登録した場合に `400` を返します。黙って無視すると意図が達成されないためで、v4.1 は caption を持つので常に受け付けます。
 
@@ -608,6 +614,16 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-09-06 — TTS 品質評価と 30 秒上限の修正
+
+- `scripts/eval_tts_quality.py` を追加。発音精度（CER）と声の再現度（話者類似度）を実素材で評価 → [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §8
+- **`min_seconds` / `max_seconds` を `SpeechReq` に追加**。未公開だったため **30 秒を超える音声を生成できなかった**（Irodori は推定長を既定 0.5〜30 秒にクランプする）
+- 主な知見:
+  - **`num_steps=10` は声の再現度を明確に損なう** — 3 話者すべてで最低、gihren では別話者の類似度すら下回った。§7 の 33% 高速化は品質とのトレードオフ
+  - **Qwen3-1.7B は gihren で類似度 0.8967** と下限割れ。§7 に続き削除判断を補強
+  - **fp16 と 8bit は品質では区別できない** — §7 で「8bit 優位」と書いたが、品質面では有意差なし。fp16 を落とす根拠は速度・メモリ・ディスクのみ
+  - **Irodori は出力長を 17〜31% 過大に予測**し、余尺が伸ばし音になる場合がある。§7 の「決定論的」は「正しい」を意味しない
 
 ### 2026-09-06 — TTS 設計書の追加と再ベンチマーク
 

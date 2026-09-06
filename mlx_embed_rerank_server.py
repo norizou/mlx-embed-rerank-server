@@ -558,6 +558,10 @@ class SpeechReq(BaseModel):
     num_steps: Optional[int] = None         # Euler ステップ数
     cfg_guidance_mode: Optional[str] = None # independent / alternating
     max_ref_seconds: Optional[float] = None # 参照音声の上限秒 (既定はモデルの 120s)
+    # duration predictor の推定値をクランプする範囲。既定は 0.5〜30 秒で、
+    # 長文では上限に張り付いて頭打ちになるため明示的に引き上げられるようにする。
+    min_seconds: Optional[float] = None
+    max_seconds: Optional[float] = None
 
 @app.post("/v1/audio/speech")
 async def audio_speech(req: SpeechReq):
@@ -583,6 +587,8 @@ async def audio_speech(req: SpeechReq):
         "num_steps": req.num_steps,
         "cfg_guidance_mode": req.cfg_guidance_mode,
         "max_ref_seconds": req.max_ref_seconds,
+        "min_seconds": req.min_seconds,
+        "max_seconds": req.max_seconds,
     }
     if tts_engine == "tts_irodori":
         # caption 条件を持たない Irodori 版 (v2/v3 base 等) を登録した場合、
@@ -632,6 +638,10 @@ async def audio_speech(req: SpeechReq):
             generate_kwargs["cfg_guidance_mode"] = req.cfg_guidance_mode
         if req.max_ref_seconds is not None:
             generate_kwargs["max_ref_seconds"] = req.max_ref_seconds
+        if req.min_seconds is not None:
+            generate_kwargs["min_seconds"] = req.min_seconds
+        if req.max_seconds is not None:
+            generate_kwargs["max_seconds"] = req.max_seconds
 
         ignored = [k for k in ("voice", "ref_text", "max_tokens") if getattr(req, k)]
         if req.lang_code and req.lang_code != "auto":

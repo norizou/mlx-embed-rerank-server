@@ -85,6 +85,15 @@ class TestTTSEngineParameters:
         detail = resp.json()["detail"]
         assert "seconds" in detail and model in detail
 
+    def test_max_seconds_rejected_by_qwen3(self, client, engines, expected_status):
+        """max_seconds は Irodori の duration クランプ用で Qwen3 には無い。"""
+        model = engines["qwen3_model"]
+        resp = client.post(
+            "/v1/audio/speech", json={"input": "x", "model": model, "max_seconds": 60}
+        )
+        assert resp.status_code == expected_status["tts_wrong_engine_param"]
+        assert "max_seconds" in resp.json()["detail"]
+
     def test_multi_clip_ref_audio_rejected_by_qwen3(self, client, engines, expected_status):
         """A list of reference clips is an Irodori v4 feature; Qwen3 takes one path."""
         model = engines["qwen3_model"]

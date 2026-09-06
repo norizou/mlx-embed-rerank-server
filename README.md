@@ -490,6 +490,11 @@ curl -X POST http://localhost:1235/v1/audio/speech \
 
 Passing a **list** for `ref_audio` encodes each clip separately and concatenates them (up to 120 s total, which matches training better than one long recording). Override the budget with `max_ref_seconds`.
 
+> **⚠️ The 30-second ceiling**
+> Irodori clamps the predicted length to `min_seconds`–`max_seconds` (default 0.5–30 s). To generate
+> more than 30 seconds you must raise `max_seconds` explicitly; otherwise long input **saturates at
+> exactly 30.00 s** ([BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §8).
+
 **Parameter support per engine**
 
 | Parameter | Qwen3-TTS | Irodori |
@@ -505,6 +510,7 @@ Passing a **list** for `ref_audio` encodes each clip separately and concatenates
 | `num_steps` | ❌ `400` | ✅ Euler steps (default 40; ~6 is much faster) |
 | `cfg_guidance_mode` | ❌ `400` | ✅ `independent` (default) / `alternating` (~1/3 the memory) |
 | `max_ref_seconds` | ❌ `400` | ✅ Reference-audio budget (defaults to the model's 120 s) |
+| `min_seconds` / `max_seconds` | ❌ `400` | ✅ Clamp range for the predicted length (default 0.5–30 s). **Long input saturates at the 30 s default** |
 
 `voice` and `ref_text` are **ignored rather than rejected** because OpenAI-compatible clients send them unconditionally. `instruct` *is* rejected when the registered Irodori model has no caption conditioning (v2 / v3 base), since silently dropping it would not do what the caller asked; v4.1 has caption conditioning, so it always accepts `instruct`.
 
