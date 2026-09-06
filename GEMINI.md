@@ -84,5 +84,6 @@ uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port 1235
 - `BENCHMARK_REPORT.md`: measured speed and accuracy for every model; the source of the default-model choices.
 - `MIGRATION_SUMMARY.md`: uv and MLX migration history.
 - `AUTO_STARTUP_SUMMARY.md`: launchd setup.
+- `TTS_ENGINE_DESIGN.md`: why `/v1/audio/speech` carries two engines, how their parameters are split, and what the tests pin down. **Read this before touching the TTS endpoint.**
 - `PLAN_STT_TTS_REVIEW.md`: pre-implementation design review for the audio endpoints (superseded in places by the shipped code).
 - `tests/`: pytest API integration suite — `test_health.py`, `test_embeddings.py`, `test_rerank.py`, `test_audio.py`, `test_errors.py`, shared fixtures in `conftest.py`, and all expected values in `data/test_cases.json` (update it whenever `AVAILABLE_*_MODELS` changes). Design rationale: `tests/TEST_DESIGN.md`. Markers: `vl` (auto-skipped without torch/torchvision), `audio` (slow; deselect with `-m "not audio"`).

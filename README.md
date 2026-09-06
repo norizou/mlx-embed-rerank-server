@@ -258,6 +258,7 @@ embed_reranker/
 ├── BENCHMARK_REPORT.md          # Benchmark results (embedding / rerank / STT / TTS)
 ├── MIGRATION_SUMMARY.md         # uv & MLX migration history
 ├── AUTO_STARTUP_SUMMARY.md      # launchd auto-start setup
+├── TTS_ENGINE_DESIGN.md         # Design of the two-engine TTS endpoint (Qwen3-TTS / Irodori)
 ├── PLAN_STT_TTS_REVIEW.md       # Historical design review for the audio endpoints
 ├── TODO.md                      # Backlog
 ├── LICENSE                      # MIT License

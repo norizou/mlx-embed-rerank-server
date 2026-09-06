@@ -277,6 +277,7 @@ embed_reranker/
 ├── BENCHMARK_REPORT.md          # ベンチマーク結果（Embedding / Rerank / STT / TTS）
 ├── MIGRATION_SUMMARY.md         # uv / MLX 移行の履歴
 ├── AUTO_STARTUP_SUMMARY.md      # launchd 自動起動の設定
+├── TTS_ENGINE_DESIGN.md         # TTS 二エンジン構成の設計・実装・テスト方針
 ├── PLAN_STT_TTS_REVIEW.md       # 音声エンドポイントの設計レビュー（実装前の記録）
 ├── TODO.md                      # 今後の検討事項
 ├── LICENSE                      # MIT License
@@ -649,6 +650,7 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 - `/health` に `loaded_asr_models` / `loaded_tts_models` / `available_audio` を追加
 - 依存関係に `mlx-audio>=0.3.0` と `python-multipart` を追加
 - 設計検討の記録は [PLAN_STT_TTS_REVIEW.md](PLAN_STT_TTS_REVIEW.md)（実装時に既定モデル等は変更されています）
+- 二エンジン構成の設計判断は [TTS_ENGINE_DESIGN.md](TTS_ENGINE_DESIGN.md)
 
 ### 2026-06-20 — `bge-m3-8bit` の追加
 
