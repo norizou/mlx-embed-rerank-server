@@ -112,7 +112,48 @@ AVAILABLE_AUDIO_MODELS = {
         "type": "tts",
         "description": "Qwen3 TTS 1.7B Base 8-bit (Text-to-Speech, Voice Clone, Stable)"
     },
+    # --- Irodori TTS (日本語特化, Flow Matching) ---
+    # v3 は duration predictor を内蔵し、出力長を自動推定する。
+    "irodori-tts-500m-v3-fp16": {
+        "id": "mlx-community/Irodori-TTS-500M-v3-fp16",
+        "type": "tts_irodori",
+        "description": "Irodori TTS 500M v3 fp16 (Japanese TTS, Voice Clone, Auto Duration)"
+    },
+    "irodori-tts-500m-v3-8bit": {
+        "id": "mlx-community/Irodori-TTS-500M-v3-8bit",
+        "type": "tts_irodori",
+        "description": "Irodori TTS 500M v3 8-bit (Japanese TTS, Voice Clone, Auto Duration)"
+    },
+    # v2 は duration predictor 非搭載。seconds を指定しない場合は 30 秒固定
+    # (sequence_length=750) で生成され、約 24GB のユニファイドメモリを要する。
+    "irodori-tts-500m-v2-fp16": {
+        "id": "mlx-community/Irodori-TTS-500M-v2-fp16",
+        "type": "tts_irodori",
+        "description": "Irodori TTS 500M v2 fp16 (Japanese TTS, Voice Clone, No Duration Predictor - specify seconds)"
+    },
+    "irodori-tts-500m-v2-8bit": {
+        "id": "mlx-community/Irodori-TTS-500M-v2-8bit",
+        "type": "tts_irodori",
+        "description": "Irodori TTS 500M v2 8-bit (Japanese TTS, Voice Clone, No Duration Predictor - specify seconds)"
+    },
+    # VoiceDesign 版のみ caption conditioning を持ち、instruct で声質を指示できる。
+    "irodori-tts-600m-v3-voicedesign-fp16": {
+        "id": "mlx-community/Irodori-TTS-600M-v3-VoiceDesign-fp16",
+        "type": "tts_irodori",
+        "voice_design": True,
+        "description": "Irodori TTS 600M v3 VoiceDesign fp16 (Japanese TTS, instruct + Voice Clone)"
+    },
+    "irodori-tts-600m-v3-voicedesign-8bit": {
+        "id": "mlx-community/Irodori-TTS-600M-v3-VoiceDesign-8bit",
+        "type": "tts_irodori",
+        "voice_design": True,
+        "description": "Irodori TTS 600M v3 VoiceDesign 8-bit (Japanese TTS, instruct + Voice Clone)"
+    },
 }
+
+# /v1/audio/speech が受け付けるモデル種別。エンジンごとに generate() の
+# キーワード引数が異なるため、種別名でディスパッチする。
+TTS_TYPES = {"tts", "tts_irodori"}
 
 DEFAULT_EMBED = "bge-m3"
 DEFAULT_RERANK = "qwen3-0.6b"
@@ -281,7 +322,7 @@ class ModelManager:
         if name not in AVAILABLE_AUDIO_MODELS:
             raise HTTPException(status_code=400, detail=f"Unsupported TTS model: {name}")
         config = AVAILABLE_AUDIO_MODELS[name]
-        if config["type"] != "tts":
+        if config["type"] not in TTS_TYPES:
             raise HTTPException(status_code=400, detail=f"Model {name} is not a TTS model")
         with self.lock:
             if name not in self.tts_cache:
@@ -520,13 +561,21 @@ async def audio_transcriptions(
 class SpeechReq(BaseModel):
     input: str
     model: Optional[str] = DEFAULT_TTS
-    voice: Optional[str] = None
     response_format: Optional[str] = "mp3"
+    # --- 共通 ---
     speed: Optional[float] = 1.0
     ref_audio: Optional[str] = None
+    # --- Qwen3-TTS 専用 ---
+    voice: Optional[str] = None
     ref_text: Optional[str] = None
     lang_code: Optional[str] = "auto"
     max_tokens: Optional[int] = None
+    # --- Irodori 専用 ---
+    instruct: Optional[str] = None          # 声質の記述 (VoiceDesign 版のみ)
+    seconds: Optional[float] = None         # 出力長を秒で明示
+    duration_scale: Optional[float] = None  # v3 の推定長に対する倍率
+    num_steps: Optional[int] = None         # Euler ステップ数
+    cfg_guidance_mode: Optional[str] = None # independent / alternating
 
 @app.post("/v1/audio/speech")
 async def audio_speech(req: SpeechReq):
@@ -535,27 +584,99 @@ async def audio_speech(req: SpeechReq):
         raise HTTPException(status_code=500, detail="mlx-audio audio_io not available")
 
     model_name = req.model or DEFAULT_TTS
+
+    # 数 GB のモデルロードを起こす前にリクエストを検証する。
+    # モデル種別のエラーは get_tts() と同じ契約を保つ。
+    if model_name not in AVAILABLE_AUDIO_MODELS:
+        raise HTTPException(status_code=400, detail=f"Unsupported TTS model: {model_name}")
+    config = AVAILABLE_AUDIO_MODELS[model_name]
+    tts_engine = config["type"]
+    if tts_engine not in TTS_TYPES:
+        raise HTTPException(status_code=400, detail=f"Model {model_name} is not a TTS model")
+    is_voice_design = bool(config.get("voice_design"))
+
+    irodori_only = {
+        "instruct": req.instruct,
+        "seconds": req.seconds,
+        "duration_scale": req.duration_scale,
+        "num_steps": req.num_steps,
+        "cfg_guidance_mode": req.cfg_guidance_mode,
+    }
+    if tts_engine == "tts_irodori":
+        if req.instruct and not is_voice_design:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model {model_name} has no caption conditioning and cannot use 'instruct'. "
+                       f"Use an Irodori VoiceDesign model instead.",
+            )
+        if is_voice_design and not (req.instruct or req.ref_audio):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model {model_name} requires either 'instruct' (a voice description) or 'ref_audio'.",
+            )
+    else:
+        supplied = [k for k, v in irodori_only.items() if v is not None]
+        if supplied:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Parameters {supplied} are Irodori-only and not supported by model {model_name}.",
+            )
+
     tts_model = manager.get_tts(model_name)
 
     # model.generate() はジェネレータ
     generate_kwargs = {}
-    if req.voice:
-        generate_kwargs["voice"] = req.voice
-    if req.speed and req.speed != 1.0:
-        generate_kwargs["speed"] = req.speed
-    if req.ref_audio:
-        generate_kwargs["ref_audio"] = req.ref_audio
-    if req.ref_text:
-        generate_kwargs["ref_text"] = req.ref_text
-    if req.lang_code and req.lang_code != "auto":
-        generate_kwargs["lang_code"] = req.lang_code
-    # ICL (ref_audio + ref_text のボイスクローン) は split_pattern による分割を行わず
-    # 入力テキスト全体を 1 回の生成で処理するため、既定の max_tokens=4096 では
-    # 長文が途中で切れる。非 ICL 経路は max_tokens が「セグメントあたり」なので既定で足りる。
-    if req.max_tokens:
-        generate_kwargs["max_tokens"] = req.max_tokens
-    elif req.ref_audio and req.ref_text:
-        generate_kwargs["max_tokens"] = 8192
+
+    if tts_engine == "tts_irodori":
+        # Irodori はリファレンス音声だけでクローンする (書き起こしは不要)。
+        # caption は声質を言葉で指示する VoiceDesign 用の条件で、
+        # ref_text とは別物なのでマッピングしない。
+        if req.ref_audio:
+            generate_kwargs["ref_audio"] = req.ref_audio
+        if req.instruct:
+            generate_kwargs["caption"] = req.instruct
+        if req.seconds is not None:
+            generate_kwargs["seconds"] = req.seconds
+        # speed は「大きいほど速い」、duration_scale は「大きいほど長い」で逆向き
+        if req.duration_scale is not None:
+            generate_kwargs["duration_scale"] = req.duration_scale
+        elif req.speed and req.speed != 1.0:
+            generate_kwargs["duration_scale"] = 1.0 / req.speed
+        if req.num_steps:
+            generate_kwargs["num_steps"] = req.num_steps
+        if req.cfg_guidance_mode:
+            generate_kwargs["cfg_guidance_mode"] = req.cfg_guidance_mode
+
+        ignored = [k for k in ("voice", "ref_text", "max_tokens") if getattr(req, k)]
+        if req.lang_code and req.lang_code != "auto":
+            ignored.append("lang_code")
+        if ignored:
+            print(f"Warning: {ignored} are Qwen3-TTS parameters and are ignored by {model_name}.")
+
+        # duration predictor 非搭載 (v2) で seconds 未指定だと 30 秒固定
+        # (sequence_length=750) になり、約 24GB のユニファイドメモリを要する。
+        dit_cfg = getattr(getattr(tts_model, "config", None), "dit", None)
+        if req.seconds is None and not getattr(dit_cfg, "use_duration_predictor", True):
+            print(f"Warning: {model_name} has no duration predictor; generating a fixed 30s "
+                  f"(sequence_length=750, ~24GB). Pass 'seconds' to cut memory and time.")
+    else:
+        if req.voice:
+            generate_kwargs["voice"] = req.voice
+        if req.speed and req.speed != 1.0:
+            generate_kwargs["speed"] = req.speed
+        if req.ref_audio:
+            generate_kwargs["ref_audio"] = req.ref_audio
+        if req.ref_text:
+            generate_kwargs["ref_text"] = req.ref_text
+        if req.lang_code and req.lang_code != "auto":
+            generate_kwargs["lang_code"] = req.lang_code
+        # ICL (ref_audio + ref_text のボイスクローン) は split_pattern による分割を行わず
+        # 入力テキスト全体を 1 回の生成で処理するため、既定の max_tokens=4096 では
+        # 長文が途中で切れる。非 ICL 経路は max_tokens が「セグメントあたり」なので既定で足りる。
+        if req.max_tokens:
+            generate_kwargs["max_tokens"] = req.max_tokens
+        elif req.ref_audio and req.ref_text:
+            generate_kwargs["max_tokens"] = 8192
 
     # 全チャンクを収集
     audio_chunks = []

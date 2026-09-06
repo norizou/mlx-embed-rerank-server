@@ -23,9 +23,9 @@ Models are **lazily loaded on the first request** (not at startup). After a heav
 - ✅ **Unified Process & Port**: Integrates Embedding, Reranking and Audio into a single FastAPI process (API port `1235`, dedicated health port `1236`).
 - ✅ **OpenAI-Compatible API**: `/v1/embeddings`, `/v1/audio/transcriptions` and `/v1/audio/speech` follow OpenAI's request/response shapes.
 - ✅ **Apple Silicon Native**: Powered by Apple's MLX library for GPU-accelerated inference on Mac hardware.
-- ✅ **Multiple Models per Task**: 5 embedding models, 2 rerankers and 4 audio models selectable per request.
+- ✅ **Multiple Models per Task**: 5 embedding models, 2 rerankers and 10 audio models selectable per request.
 - ✅ **Multimodal Models**: Qwen3-VL Embedding/Reranker (2B) with `instruction` support (requires `torch` / `torchvision`, see [Requirements](#-requirements)).
-- ✅ **Audio Capabilities**: STT (`/v1/audio/transcriptions`) and TTS with voice cloning (`/v1/audio/speech`) powered by Qwen3-ASR/TTS models.
+- ✅ **Audio Capabilities**: STT (`/v1/audio/transcriptions`) and TTS with voice cloning (`/v1/audio/speech`). Two TTS engines: Qwen3-TTS and the Japanese-specialised Irodori TTS.
 - ✅ **Smart Auto-Fallback**: Unloads heavy Qwen3-VL models after inactivity, clears the Metal cache and preloads the lightweight default models.
 - ✅ **Hang-Resistant Supervisor**: A dedicated health server on a separate thread/port keeps responding while MLX inference blocks the main event loop.
 - ✅ **Zero GGUF Overhead**: Runs directly using MLX community weights without needing GGUF conversions.
@@ -64,7 +64,9 @@ A dedicated health-check server also listens on `http://localhost:1236` (see [Su
   "loaded_asr_models": [], "loaded_tts_models": [],
   "available_embed": ["gemma-3-300m", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
-  "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit"]
+  "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
+                      "irodori-tts-500m-v3-fp16", "irodori-tts-500m-v3-8bit", "irodori-tts-500m-v2-fp16", "irodori-tts-500m-v2-8bit",
+                      "irodori-tts-600m-v3-voicedesign-fp16", "irodori-tts-600m-v3-voicedesign-8bit"]
 }
 ```
 
@@ -201,8 +203,21 @@ You can select a model by passing the `model` parameter in your API request. If 
 | `qwen3-asr-1.7b-8bit` | `Qwen3-ASR-1.7B-8bit` | Speech-to-Text (ASR), best accuracy (43.9x realtime, default). |
 | `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | Text-to-Speech (TTS), voice cloning, fast load (default). |
 | `qwen3-tts-1.7b-base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | Text-to-Speech (TTS), most stable speech tempo. |
+| `irodori-tts-500m-v3-fp16` | `Irodori-TTS-500M-v3-fp16` | Japanese-specialised TTS; voice cloning plus automatic duration prediction. |
+| `irodori-tts-500m-v3-8bit` | `Irodori-TTS-500M-v3-8bit` | Quantised variant of the above. |
+| `irodori-tts-500m-v2-fp16` | `Irodori-TTS-500M-v2-fp16` | ⚠️ No duration predictor — pass `seconds` (see below). |
+| `irodori-tts-500m-v2-8bit` | `Irodori-TTS-500M-v2-8bit` | ⚠️ Quantised variant of the above. |
+| `irodori-tts-600m-v3-voicedesign-fp16` | `Irodori-TTS-600M-v3-VoiceDesign-fp16` | Describe the voice in words via `instruct`; combines with `ref_audio`. |
+| `irodori-tts-600m-v3-voicedesign-8bit` | `Irodori-TTS-600M-v3-VoiceDesign-8bit` | Quantised variant of the above. |
 
 4-bit variants were evaluated and dropped; all shipped audio models are 8-bit. See [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §5.6 / §6.5.
+The Irodori fp16/8-bit and v2/v3 variants are all registered provisionally and will be pruned after benchmarking.
+
+> **⚠️ Note on v2**
+> v2 has no duration predictor, so without `seconds` it generates a fixed 30 seconds
+> (`sequence_length=750`) and needs roughly **24 GB** of unified memory. Passing `seconds`
+> cuts both memory and time dramatically (~2 GB at `seconds=4`). The server logs a warning
+> when a v2 model is used without `seconds`.
 
 ---
 
@@ -434,6 +449,50 @@ curl -X POST http://localhost:1235/v1/audio/speech \
 ```
 
 `ref_audio` must be a path **on the server host** (client-side upload is not implemented). Keep the reference clip to roughly **5–15 seconds**: longer clips make ICL encoding slow enough to matter ([BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §6.5).
+
+#### Irodori TTS (Japanese-specialised engine)
+
+Irodori is a separate engine from Qwen3-TTS and takes different `generate()` kwargs. It **clones from the reference audio alone — no transcript (`ref_text`) is needed**.
+
+```bash
+# Voice cloning (no transcript required)
+curl -X POST http://localhost:1235/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "今日はいい天気ですね。",
+    "model": "irodori-tts-500m-v3-8bit",
+    "ref_audio": "/path/to/reference.wav",
+    "response_format": "wav"
+  }' \
+  --output cloned.wav
+
+# VoiceDesign: describe the voice in words
+curl -X POST http://localhost:1235/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "今日はいい天気ですね。",
+    "model": "irodori-tts-600m-v3-voicedesign-8bit",
+    "instruct": "落ち着いた女性の声で、近い距離感でやわらかく自然に読み上げてください。",
+    "response_format": "wav"
+  }' \
+  --output designed.wav
+```
+
+**Parameter support per engine**
+
+| Parameter | Qwen3-TTS | Irodori |
+|:---|:---|:---|
+| `ref_audio` | ✅ ICL when paired with `ref_text` | ✅ Clones on its own |
+| `ref_text` | ✅ Required for ICL | ⚠️ Ignored (warning logged) |
+| `voice` / `lang_code` / `max_tokens` | ✅ | ⚠️ Ignored (warning logged) |
+| `speed` | ✅ Passed through | ✅ Converted to `duration_scale = 1 / speed` |
+| `instruct` | ❌ `400` | ✅ **VoiceDesign variants only** (`400` on base variants) |
+| `seconds` | ❌ `400` | ✅ Sets the output length explicitly |
+| `duration_scale` | ❌ `400` | ✅ Scales the v3 predicted length (>1 is longer) |
+| `num_steps` | ❌ `400` | ✅ Euler steps (default 40; ~6 is much faster) |
+| `cfg_guidance_mode` | ❌ `400` | ✅ `independent` (default) / `alternating` (~1/3 the memory) |
+
+`voice` and `ref_text` are **ignored rather than rejected** because OpenAI-compatible clients send them unconditionally. `instruct` on a base variant *is* rejected: those models have no caption conditioning, so silently dropping it would not do what the caller asked.
 
 ---
 

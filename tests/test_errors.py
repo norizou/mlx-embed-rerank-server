@@ -65,6 +65,43 @@ class TestWrongModelType:
         assert resp.json()["detail"] == f"Model {model} is not a TTS model"
 
 
+class TestTTSEngineParameters:
+    """Qwen3-TTS and Irodori take different generate() kwargs.
+
+    Every assertion here is rejected *before* `get_tts()` runs, so none of
+    these tests pull weights -- that is why they live outside the `audio` mark.
+    """
+
+    @pytest.fixture(scope="class")
+    def engines(self, test_cases):
+        return test_cases["errors"]["wrong_engine"]
+
+    def test_irodori_only_param_rejected_by_qwen3(self, client, engines, expected_status):
+        model = engines["qwen3_model"]
+        resp = client.post(
+            "/v1/audio/speech", json={"input": "x", "model": model, "seconds": 4.0}
+        )
+        assert resp.status_code == expected_status["tts_wrong_engine_param"]
+        detail = resp.json()["detail"]
+        assert "seconds" in detail and model in detail
+
+    def test_instruct_rejected_by_irodori_base_model(self, client, engines, expected_status):
+        """caption conditioning only exists on the VoiceDesign variants."""
+        model = engines["irodori_base_model"]
+        resp = client.post(
+            "/v1/audio/speech",
+            json={"input": "x", "model": model, "instruct": "落ち着いた女性の声"},
+        )
+        assert resp.status_code == expected_status["tts_wrong_engine_param"]
+        assert "instruct" in resp.json()["detail"]
+
+    def test_voice_design_needs_instruct_or_ref_audio(self, client, engines, expected_status):
+        model = engines["irodori_voice_design_model"]
+        resp = client.post("/v1/audio/speech", json={"input": "x", "model": model})
+        assert resp.status_code == expected_status["tts_wrong_engine_param"]
+        assert "instruct" in resp.json()["detail"]
+
+
 class TestRequestValidation:
     """FastAPI/Pydantic validation happens before any model is touched."""
 

@@ -17,7 +17,13 @@
       "qwen3-asr-0.6b-8bit",
       "qwen3-asr-1.7b-8bit",
       "qwen3-tts-0.6b-base-8bit",
-      "qwen3-tts-1.7b-base-8bit"
+      "qwen3-tts-1.7b-base-8bit",
+      "irodori-tts-500m-v3-fp16",
+      "irodori-tts-500m-v3-8bit",
+      "irodori-tts-500m-v2-fp16",
+      "irodori-tts-500m-v2-8bit",
+      "irodori-tts-600m-v3-voicedesign-fp16",
+      "irodori-tts-600m-v3-voicedesign-8bit"
     ],
     "expected_loaded_keys": [
       "loaded_embed_models",
@@ -113,6 +119,18 @@
       "input": "これはテストです。",
       "response_format": "wav",
       "expected_content_type": "audio/wav"
+    },
+    "tts_irodori": {
+      "model": "irodori-tts-500m-v3-8bit",
+      "voice_design_model": "irodori-tts-600m-v3-voicedesign-8bit",
+      "input": "これはテストです。",
+      "response_format": "wav",
+      "expected_content_type": "audio/wav",
+      "seconds": 4.0,
+      "ref_sample_rate": 48000,
+      "ref_duration_sec": 3.0,
+      "ref_frequency": 220,
+      "instruct": "落ち着いた女性の声で、やわらかく自然に読み上げてください。"
     }
   },
   "errors": {
@@ -123,11 +141,17 @@
       "stt_unknown_model": 400,
       "tts_unknown_model": 400,
       "stt_wrong_type_model": 400,
-      "tts_wrong_type_model": 400
+      "tts_wrong_type_model": 400,
+      "tts_wrong_engine_param": 400
     },
     "wrong_type": {
       "tts_model_for_stt": "qwen3-tts-0.6b-base-8bit",
       "asr_model_for_tts": "qwen3-asr-0.6b-8bit"
+    },
+    "wrong_engine": {
+      "qwen3_model": "qwen3-tts-0.6b-base-8bit",
+      "irodori_base_model": "irodori-tts-500m-v3-8bit",
+      "irodori_voice_design_model": "irodori-tts-600m-v3-voicedesign-8bit"
     }
   }
 }

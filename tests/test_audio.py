@@ -23,6 +23,17 @@ def _sine_wav(sample_rate: int, duration_sec: float, frequency: int) -> io.Bytes
     return buffer
 
 
+def _sine_wav_path(tmp_path, sample_rate: int, duration_sec: float, frequency: int) -> str:
+    """Same tone, but on disk: `ref_audio` is read by the server, not uploaded.
+
+    The suite drives a server on this same host, so a local path is readable
+    by it (documented in README "ref_audio must be a path on the server host").
+    """
+    path = tmp_path / "ref.wav"
+    path.write_bytes(_sine_wav(sample_rate, duration_sec, frequency).getvalue())
+    return str(path)
+
+
 class TestTranscriptions:
     def test_returns_text_field(self, client, test_cases):
         """A short tone carries no speech; the contract is the JSON shape."""
@@ -91,6 +102,94 @@ class TestSpeech:
         resp = client.post("/v1/audio/speech", json={"input": "短いテスト", "response_format": "wav"})
         assert resp.status_code == 200, resp.text[:400]
         assert resp.headers["content-type"] == "audio/wav"
+
+
+class TestSpeechIrodori:
+    """Irodori is a second TTS engine with its own generate() kwargs.
+
+    It clones from `ref_audio` alone -- no transcript -- and controls length
+    with `seconds` / `duration_scale` rather than `speed`.
+    """
+
+    @pytest.fixture(scope="class")
+    def case(self, test_cases):
+        return test_cases["audio"]["tts_irodori"]
+
+    def test_voice_clone_returns_wav(self, client, case, tmp_path):
+        ref = _sine_wav_path(
+            tmp_path, case["ref_sample_rate"], case["ref_duration_sec"], case["ref_frequency"]
+        )
+        resp = client.post(
+            "/v1/audio/speech",
+            json={
+                "input": case["input"],
+                "model": case["model"],
+                "ref_audio": ref,
+                "seconds": case["seconds"],
+                "response_format": case["response_format"],
+            },
+        )
+        assert resp.status_code == 200, resp.text[:400]
+        assert resp.headers["content-type"] == case["expected_content_type"]
+        assert resp.content[:4] == b"RIFF"
+
+    def test_speed_maps_to_duration_scale(self, client, case, tmp_path):
+        """`speed` has no Irodori equivalent; the server inverts it into
+        `duration_scale`, so the request must succeed rather than 400."""
+        ref = _sine_wav_path(
+            tmp_path, case["ref_sample_rate"], case["ref_duration_sec"], case["ref_frequency"]
+        )
+        resp = client.post(
+            "/v1/audio/speech",
+            json={
+                "input": case["input"],
+                "model": case["model"],
+                "ref_audio": ref,
+                "seconds": case["seconds"],
+                "speed": 1.2,
+                "response_format": "wav",
+            },
+        )
+        assert resp.status_code == 200, resp.text[:400]
+        assert resp.content[:4] == b"RIFF"
+
+    def test_qwen3_params_are_ignored_not_rejected(self, client, case, tmp_path):
+        """`voice` / `ref_text` are logged as ignored, never rejected.
+
+        OpenAI-compatible clients send `voice` unconditionally, so a 400 here
+        would break them.
+        """
+        ref = _sine_wav_path(
+            tmp_path, case["ref_sample_rate"], case["ref_duration_sec"], case["ref_frequency"]
+        )
+        resp = client.post(
+            "/v1/audio/speech",
+            json={
+                "input": case["input"],
+                "model": case["model"],
+                "ref_audio": ref,
+                "seconds": case["seconds"],
+                "voice": "Chelsie",
+                "ref_text": "リファレンス音声の書き起こし",
+                "response_format": "wav",
+            },
+        )
+        assert resp.status_code == 200, resp.text[:400]
+        assert resp.content[:4] == b"RIFF"
+
+    def test_voice_design_accepts_instruct(self, client, case):
+        resp = client.post(
+            "/v1/audio/speech",
+            json={
+                "input": case["input"],
+                "model": case["voice_design_model"],
+                "instruct": case["instruct"],
+                "seconds": case["seconds"],
+                "response_format": "wav",
+            },
+        )
+        assert resp.status_code == 200, resp.text[:400]
+        assert resp.content[:4] == b"RIFF"
 
 
 class TestHealthReflectsAudioLoads:

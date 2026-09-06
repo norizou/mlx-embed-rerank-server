@@ -122,6 +122,10 @@ uv run pytest tests/test_rerank.py -v   # ファイル単位
 | `test_returns_audio_bytes` | TTS の Content-Type と `Content-Disposition: filename=speech.<fmt>`、本文が非空 |
 | `test_wav_output_has_riff_header` | wav 出力が実際に RIFF ヘッダを持つ |
 | `test_default_model_when_model_omitted`（TTS） | `DEFAULT_TTS` で動作 |
+| `TestSpeechIrodori::test_voice_clone_returns_wav` | Irodori は `ref_audio` のみでクローンでき、書き起こしを要さない |
+| `TestSpeechIrodori::test_speed_maps_to_duration_scale` | Irodori に `speed` はないが、サーバーが `duration_scale` へ逆数変換するので 200 |
+| `TestSpeechIrodori::test_qwen3_params_are_ignored_not_rejected` | `voice` / `ref_text` は警告ログのみで **400 にしない**（OpenAI 互換クライアント互換性） |
+| `TestSpeechIrodori::test_voice_design_accepts_instruct` | VoiceDesign 版のみ `instruct`（caption）で声質を指定できる |
 | `test_requested_audio_model_appears_in_health` | 音声モデルは自動アンロードされず `/health` に残り続ける |
 
 ### 4.5 `test_errors.py` — エラー応答
@@ -134,7 +138,13 @@ uv run pytest tests/test_rerank.py -v   # ファイル単位
 | `test_rerank_returns_400` | `/v1/rerank` は **400** + `Unsupported rerank model: ...` |
 | `test_stt_returns_400` / `test_tts_returns_400` | 音声は **400** + `Unsupported ASR/TTS model: ...` |
 | `test_tts_model_rejected_by_stt_endpoint` ほか | 種別違いのモデル指定は **400** + `Model ... is not an ASR/TTS model` |
+| `TestTTSEngineParameters::test_irodori_only_param_rejected_by_qwen3` | `seconds` 等の Irodori 専用パラメータを Qwen3-TTS に渡すと **400** |
+| `TestTTSEngineParameters::test_instruct_rejected_by_irodori_base_model` | caption 条件を持たない base 版への `instruct` は **400**（黙って無視しない） |
+| `TestTTSEngineParameters::test_voice_design_needs_instruct_or_ref_audio` | VoiceDesign 版は `instruct` か `ref_audio` のいずれか必須で、無指定は **400** |
 | `TestRequestValidation` | 必須フィールド欠落は Pydantic により **422**、未定義ルートは **404** |
+
+`TestTTSEngineParameters` は `manager.get_tts()` より**前**に検証される契約を固定しています。
+不正リクエストで数 GB のモデルロードが走らないことが要件なので、これらは `audio` マークを付けません。
 
 ## 5. 意図的にテストしていないこと
 
@@ -142,7 +152,8 @@ uv run pytest tests/test_rerank.py -v   # ファイル単位
 |:---|:---|
 | 自動フォールバック（30 秒無使用での Qwen3-VL アンロード） | 判定が 30 秒周期タイマーのため 1 ケースに最大 60 秒かかり、`torch` 必須でもある。手動確認（`/health` の `loaded_*` を監視）に委ねる |
 | スーパーバイザーの再起動動作 | プロセスの kill を伴い、テスト実行環境（launchd 常駐）を壊す |
-| TTS のボイスクローン（`ref_audio` / `ref_text`） | サーバーホスト上の参照音声ファイルが必要で、環境依存が大きい |
+| Qwen3-TTS のボイスクローン（`ref_audio` + `ref_text`） | ICL エンコードが重く、参照音声の書き起こしが必要。Irodori 側（`TestSpeechIrodori`）で `ref_audio` の経路自体は押さえている |
+| 生成音声の**内容**（声の類似度、話速、`seconds` どおりの長さ） | 主観評価か音響解析が必要。ここでは 200 と RIFF ヘッダまでを契約とする |
 | 推論の絶対精度・速度 | `BENCHMARK_REPORT.md` の計測が担当。テストは順位・型・構造など安定した性質のみを見る |
 | 画像入力 | HTTP API はテキスト専用（`input` は文字列／文字列配列のみ） |
 

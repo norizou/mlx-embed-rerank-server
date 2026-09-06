@@ -26,9 +26,9 @@ RAG（Retrieval-Augmented Generation）用の **Embedding / Rerank / 音声エ�
 - ✅ Embedding / Rerank / 音声を **1 プロセス**で提供（API ポート `1235`、ヘルス専用ポート `1236`）
 - ✅ OpenAI 互換 API（`/v1/embeddings`, `/v1/audio/transcriptions`, `/v1/audio/speech`）
 - ✅ Apple Silicon ネイティブの **MLX** による GPU 推論
-- ✅ Embedding 5 モデル / Reranker 2 モデル / 音声 4 モデルをリクエスト単位で切り替え
+- ✅ Embedding 5 モデル / Reranker 2 モデル / 音声 10 モデルをリクエスト単位で切り替え
 - ✅ Qwen3-VL Embedding / Reranker 2B（`instruction` 対応。`torch` / `torchvision` が別途必要 → [動作環境](#-動作環境)）
-- ✅ STT（`/v1/audio/transcriptions`）と、ボイスクローン対応 TTS（`/v1/audio/speech`）
+- ✅ STT（`/v1/audio/transcriptions`）と、ボイスクローン対応 TTS（`/v1/audio/speech`）。TTS は Qwen3-TTS と日本語特化の Irodori TTS の 2 エンジン
 - ✅ Qwen3-VL の自動アンロード + デフォルトモデルのプリロード（メモリ最適化）
 - ✅ 推論中でも応答するヘルスチェック専用サーバー（別スレッド / 別ポート）
 - ✅ GGUF 変換不要。MLX コミュニティの重みをそのまま利用
@@ -69,7 +69,9 @@ http://localhost:1235
   "loaded_asr_models": [], "loaded_tts_models": [],
   "available_embed": ["gemma-3-300m", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
-  "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit"]
+  "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
+                      "irodori-tts-500m-v3-fp16", "irodori-tts-500m-v3-8bit", "irodori-tts-500m-v2-fp16", "irodori-tts-500m-v2-8bit",
+                      "irodori-tts-600m-v3-voicedesign-fp16", "irodori-tts-600m-v3-voicedesign-8bit"]
 }
 ```
 
@@ -220,8 +222,20 @@ sequenceDiagram
 | `qwen3-asr-1.7b-8bit` | `Qwen3-ASR-1.7B-8bit` | 音声認識。最高精度（43.9x、デフォルト） |
 | `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | 音声合成・ボイスクローン。ロードが速い（デフォルト） |
 | `qwen3-tts-1.7b-base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | 音声合成。話速が最も安定 |
+| `irodori-tts-500m-v3-fp16` | `Irodori-TTS-500M-v3-fp16` | 日本語特化 TTS。ボイスクローン＋出力長の自動推定 |
+| `irodori-tts-500m-v3-8bit` | `Irodori-TTS-500M-v3-8bit` | 同上の量子化版 |
+| `irodori-tts-500m-v2-fp16` | `Irodori-TTS-500M-v2-fp16` | ⚠️ duration predictor 非搭載。`seconds` 必須（後述） |
+| `irodori-tts-500m-v2-8bit` | `Irodori-TTS-500M-v2-8bit` | ⚠️ 同上の量子化版 |
+| `irodori-tts-600m-v3-voicedesign-fp16` | `Irodori-TTS-600M-v3-VoiceDesign-fp16` | `instruct` で声質を言葉で指示できる。ref_audio との併用も可 |
+| `irodori-tts-600m-v3-voicedesign-8bit` | `Irodori-TTS-600M-v3-VoiceDesign-8bit` | 同上の量子化版 |
 
 4bit 版は評価の結果採用を見送り、音声モデルは 8bit に統一しています（[BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §5.6 / §6.5）。
+Irodori は fp16 / 8bit・v2 / v3 を暫定的に全て登録しており、ベンチマーク後に整理する予定です。
+
+> **⚠️ v2 を使う際の注意**
+> v2 は duration predictor を持たないため、`seconds` を指定しないと **30 秒固定**（`sequence_length=750`）で生成され、
+> 約 **24GB** のユニファイドメモリを要します。`seconds` を指定すればメモリと時間を大幅に削減できます
+> （`seconds=4` で約 2GB）。サーバーは v2 で `seconds` 未指定の場合に警告ログを出します。
 
 ---
 
@@ -469,6 +483,50 @@ curl -X POST http://localhost:1235/v1/audio/speech \
 
 `ref_audio` は**サーバーホスト上のパス**を指定します（クライアントからのアップロードは未実装）。参照音声は **5〜15 秒程度**を推奨します。長すぎると ICL エンコードに時間がかかります（[BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §6.5）。
 
+#### Irodori TTS（日本語特化エンジン）
+
+Irodori は Qwen3-TTS とは別のエンジンで、`generate()` の引数が異なります。**リファレンス音声だけでクローンでき、書き起こし（`ref_text`）は不要**です。
+
+```bash
+# ボイスクローン（書き起こし不要）
+curl -X POST http://localhost:1235/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "今日はいい天気ですね。",
+    "model": "irodori-tts-500m-v3-8bit",
+    "ref_audio": "/path/to/reference.wav",
+    "response_format": "wav"
+  }' \
+  --output cloned.wav
+
+# VoiceDesign: 声質を言葉で指示する
+curl -X POST http://localhost:1235/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "今日はいい天気ですね。",
+    "model": "irodori-tts-600m-v3-voicedesign-8bit",
+    "instruct": "落ち着いた女性の声で、近い距離感でやわらかく自然に読み上げてください。",
+    "response_format": "wav"
+  }' \
+  --output designed.wav
+```
+
+**エンジン別のパラメータ対応**
+
+| パラメータ | Qwen3-TTS | Irodori |
+|:---|:---|:---|
+| `ref_audio` | ✅ `ref_text` と併用で ICL | ✅ 単体でクローン可能 |
+| `ref_text` | ✅ ICL に必須 | ⚠️ 無視（警告ログのみ） |
+| `voice` / `lang_code` / `max_tokens` | ✅ | ⚠️ 無視（警告ログのみ） |
+| `speed` | ✅ そのまま渡す | ✅ `duration_scale = 1 / speed` に変換 |
+| `instruct` | ❌ `400` | ✅ **VoiceDesign 版のみ**（base 版に渡すと `400`） |
+| `seconds` | ❌ `400` | ✅ 出力長を秒で明示 |
+| `duration_scale` | ❌ `400` | ✅ v3 の推定長に対する倍率（>1 で長く） |
+| `num_steps` | ❌ `400` | ✅ Euler ステップ数（既定 40。`6` 程度まで下げると高速） |
+| `cfg_guidance_mode` | ❌ `400` | ✅ `independent`（既定） / `alternating`（メモリ約 1/3） |
+
+`voice` / `ref_text` を **400 にせず無視**しているのは、OpenAI 互換クライアントがこれらを無条件に送るためです。逆に `instruct` を caption 条件のない base 版へ渡した場合は、黙って無視すると意図が達成されないため `400` を返します。
+
 ---
 
 ## 🧪 テスト（自動）
@@ -535,6 +593,17 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-09-06 — Irodori TTS（日本語特化エンジン）の追加
+
+- `AVAILABLE_AUDIO_MODELS` に Irodori TTS を **6 モデル**追加（v3 / v2 の fp16・8bit と、v3 VoiceDesign の fp16・8bit）。音声モデルは計 10 件
+- `type: "tts_irodori"` として **Qwen3-TTS とは別エンジン**にディスパッチ。`generate()` の引数体系が異なるため、エンジンごとにパラメータを分離
+- `SpeechReq` に `instruct` / `seconds` / `duration_scale` / `num_steps` / `cfg_guidance_mode` を追加
+- Irodori は `ref_audio` 単体でクローンできるため、**`ref_text` は caption にマッピングしない**。caption（`instruct`）は声質を言葉で指示する VoiceDesign 専用の条件で、書き起こしとは別物
+- `speed` は Irodori に存在しないため `duration_scale = 1 / speed` に変換
+- パラメータ検証を `get_tts()` の**前**に移動し、不正リクエストで数 GB のモデルロードが走らないように変更
+- duration predictor 非搭載の v2 で `seconds` 未指定の場合に警告ログを出力
+- 依存関係の下限を `mlx-audio>=0.3.0` → **`>=0.4.4`**（Irodori は 0.4 系の機能）
 
 ### 2026-09-06 — Qwen3-TTS に `lang_code` / `max_tokens` を追加
 
