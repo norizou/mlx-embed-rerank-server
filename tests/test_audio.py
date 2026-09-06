@@ -108,7 +108,9 @@ class TestSpeechIrodori:
     """Irodori is a second TTS engine with its own generate() kwargs.
 
     It clones from `ref_audio` alone -- no transcript -- and controls length
-    with `seconds` / `duration_scale` rather than `speed`.
+    with `seconds` / `duration_scale` rather than `speed`. v4.1-Small is a
+    unified checkpoint, so cloning, VoiceDesign (`instruct`) and automatic
+    duration all come from the one model.
     """
 
     @pytest.fixture(scope="class")
@@ -177,13 +179,55 @@ class TestSpeechIrodori:
         assert resp.status_code == 200, resp.text[:400]
         assert resp.content[:4] == b"RIFF"
 
-    def test_voice_design_accepts_instruct(self, client, case):
+    def test_caption_only_voice_design(self, client, case):
+        """v4.1 generates from `instruct` alone, with no reference audio."""
         resp = client.post(
             "/v1/audio/speech",
             json={
                 "input": case["input"],
-                "model": case["voice_design_model"],
+                "model": case["model"],
                 "instruct": case["instruct"],
+                "seconds": case["seconds"],
+                "response_format": "wav",
+            },
+        )
+        assert resp.status_code == 200, resp.text[:400]
+        assert resp.content[:4] == b"RIFF"
+
+    def test_ref_audio_and_instruct_combine(self, client, case, tmp_path):
+        """Style-controlled cloning: the unified checkpoint takes both at once."""
+        ref = _sine_wav_path(
+            tmp_path, case["ref_sample_rate"], case["ref_duration_sec"], case["ref_frequency"]
+        )
+        resp = client.post(
+            "/v1/audio/speech",
+            json={
+                "input": case["input"],
+                "model": case["model"],
+                "ref_audio": ref,
+                "instruct": case["instruct"],
+                "seconds": case["seconds"],
+                "response_format": "wav",
+            },
+        )
+        assert resp.status_code == 200, resp.text[:400]
+        assert resp.content[:4] == b"RIFF"
+
+    def test_multi_clip_ref_audio(self, client, case, tmp_path):
+        """v4 encodes each clip separately and concatenates them."""
+        refs = []
+        for i, freq in enumerate((case["ref_frequency"], case["ref_frequency"] * 2)):
+            path = tmp_path / f"ref_{i}.wav"
+            path.write_bytes(
+                _sine_wav(case["ref_sample_rate"], case["ref_duration_sec"], freq).getvalue()
+            )
+            refs.append(str(path))
+        resp = client.post(
+            "/v1/audio/speech",
+            json={
+                "input": case["input"],
+                "model": case["model"],
+                "ref_audio": refs,
                 "seconds": case["seconds"],
                 "response_format": "wav",
             },

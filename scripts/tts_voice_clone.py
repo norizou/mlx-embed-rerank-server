@@ -41,20 +41,29 @@ m4a 等のリファレンス音声ファイルを使い、任意のテキスト�
   uv run scripts/tts_voice_clone.py \
       --ref-audio /path/to/voice.m4a \
       --input "こんにちは。この声で読み上げます。" \
-      --model irodori-tts-500m-v3-8bit \
+      --model irodori-tts-v4.1-small-8bit \
       --output speech.wav
 
   # Irodori VoiceDesign: 声質を言葉で指示（リファレンス音声なしでも可）
   uv run scripts/tts_voice_clone.py \
       --instruct "落ち着いた女性の声で、やわらかく自然に読み上げてください。" \
       --input "こんにちは。" \
-      --model irodori-tts-600m-v3-voicedesign-8bit \
+      --model irodori-tts-v4.1-small-8bit \
       --output designed.wav
 
+  # Irodori: 複数クリップを参照（--ref-audio を繰り返す。合計120秒まで）
+  uv run scripts/tts_voice_clone.py \
+      --ref-audio clip1.wav --ref-audio clip2.wav \
+      --instruct "悲痛なトーンで弱々しく話す。" \
+      --input "..." \
+      --model irodori-tts-v4.1-small-8bit \
+      --output styled.wav
+
 エンジンによる違い:
-  - Qwen3-TTS: --ref-audio と --ref-text（書き起こし）が必須。--lang / --max-tokens が使える
-  - Irodori:   --ref-audio だけでクローンできる。--ref-text は無視される。
-               長さは --seconds / --duration-scale で制御する（--speed も内部で変換される）
+  - Qwen3-TTS: --ref-audio（1本）と --ref-text（書き起こし）が必須。--lang / --max-tokens が使える
+  - Irodori:   --ref-audio か --instruct のどちらかがあればよい。--ref-text は無視される。
+               --ref-audio は複数指定可。長さは --seconds / --duration-scale で制御する
+               （--speed も内部で duration_scale に変換される）
 """
 
 import argparse
@@ -68,20 +77,9 @@ DEFAULT_MODEL = "qwen3-tts-0.6b-base-8bit"
 SUPPORTED_FORMATS = ("mp3", "wav", "flac", "ogg")
 
 QWEN3_MODELS = ("qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit")
-IRODORI_BASE_MODELS = (
-    "irodori-tts-500m-v3-fp16",
-    "irodori-tts-500m-v3-8bit",
-    "irodori-tts-500m-v2-fp16",
-    "irodori-tts-500m-v2-8bit",
-)
-IRODORI_VOICE_DESIGN_MODELS = (
-    "irodori-tts-600m-v3-voicedesign-fp16",
-    "irodori-tts-600m-v3-voicedesign-8bit",
-)
-IRODORI_MODELS = IRODORI_BASE_MODELS + IRODORI_VOICE_DESIGN_MODELS
+# v4.1-Small は単一チェックポイントでクローン / VoiceDesign / 長さ自動推定を兼ねる
+IRODORI_MODELS = ("irodori-tts-v4.1-small-8bit", "irodori-tts-v4.1-small-fp16")
 ALL_MODELS = QWEN3_MODELS + IRODORI_MODELS
-# duration predictor 非搭載。seconds 未指定だと 30 秒固定 (約 24GB) になる
-IRODORI_NO_DURATION_PREDICTOR = ("irodori-tts-500m-v2-fp16", "irodori-tts-500m-v2-8bit")
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,8 +89,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ref-audio",
         default=None,
-        help="リファレンス音声ファイルのパス（サーバーから見たパス）。5〜15秒推奨。"
-             "Qwen3-TTS では必須、Irodori VoiceDesign では --instruct があれば省略可",
+        action="append",
+        help="リファレンス音声ファイルのパス（サーバーから見たパス）。Qwen3-TTS では必須で 5〜15 秒推奨。"
+             "Irodori では --instruct があれば省略可、かつ複数回指定すると各クリップを"
+             "個別にエンコードして連結する（合計 120 秒まで）",
     )
     p.add_argument(
         "--ref-text",
@@ -103,7 +103,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--instruct",
         default=None,
-        help="声質を言葉で指示する（Irodori VoiceDesign 版のみ）。例: 落ち着いた女性の声で、やわらかく",
+        help="声質を言葉で指示する（Irodori のみ）。例: 落ち着いた女性の声で、やわらかく。"
+             "--ref-audio と併用すると声はクローンしつつ話し方を指示できる",
     )
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--input", help="読み上げるテキスト")
@@ -169,6 +170,12 @@ def parse_args() -> argparse.Namespace:
         help="CFG のガイダンス方式（Irodori のみ）。alternating はメモリが約 1/3 になる",
     )
     p.add_argument(
+        "--max-ref-seconds",
+        type=float,
+        default=None,
+        help="参照音声の上限秒（Irodori のみ、既定はモデルの 120 秒）",
+    )
+    p.add_argument(
         "--base-url",
         default=BASE_URL,
         help=f"サーバーURL（デフォルト: {BASE_URL}）",
@@ -199,30 +206,37 @@ def main() -> None:
     args = parse_args()
 
     is_irodori = args.model in IRODORI_MODELS
-    is_voice_design = args.model in IRODORI_VOICE_DESIGN_MODELS
 
-    ref_audio = None
-    if args.ref_audio:
-        ref_audio = Path(args.ref_audio).resolve()
-        if not ref_audio.exists():
-            print(f"エラー: リファレンス音声が見つかりません: {ref_audio}", file=sys.stderr)
+    ref_paths = []
+    for raw in (args.ref_audio or []):
+        path = Path(raw).resolve()
+        if not path.exists():
+            print(f"エラー: リファレンス音声が見つかりません: {path}", file=sys.stderr)
             sys.exit(1)
+        ref_paths.append(str(path))
 
-    if not is_irodori and not ref_audio:
-        print("エラー: Qwen3-TTS のボイスクローンには --ref-audio が必要です。", file=sys.stderr)
-        sys.exit(1)
-    if is_voice_design and not (ref_audio or args.instruct):
-        print("エラー: VoiceDesign 版には --instruct か --ref-audio が必要です。", file=sys.stderr)
-        sys.exit(1)
-    if is_irodori and not is_voice_design and args.instruct:
+    if not is_irodori:
+        if not ref_paths:
+            print("エラー: Qwen3-TTS のボイスクローンには --ref-audio が必要です。", file=sys.stderr)
+            sys.exit(1)
+        if len(ref_paths) > 1:
+            print(
+                "エラー: Qwen3-TTS は参照音声を 1 本しか受け付けません。"
+                " 複数クリップは Irodori v4 の機能です。",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not args.ref_text:
+            print("エラー: Qwen3-TTS の ICL には --ref-text（書き起こし）が必要です。", file=sys.stderr)
+            sys.exit(1)
+        if args.instruct:
+            print("エラー: --instruct は Irodori 専用です。", file=sys.stderr)
+            sys.exit(1)
+    elif not ref_paths and not args.instruct:
         print(
-            f"エラー: {args.model} は caption 条件を持たないため --instruct を使えません。"
-            " VoiceDesign 版を指定してください。",
+            "エラー: Irodori には --ref-audio か --instruct のどちらかを指定してください。",
             file=sys.stderr,
         )
-        sys.exit(1)
-    if not is_irodori and not args.ref_text:
-        print("エラー: Qwen3-TTS の ICL には --ref-text（書き起こし）が必要です。", file=sys.stderr)
         sys.exit(1)
 
     text = read_input_text(args)
@@ -237,8 +251,9 @@ def main() -> None:
         "model": args.model,
         "response_format": response_format,
     }
-    if ref_audio:
-        payload["ref_audio"] = str(ref_audio)
+    if ref_paths:
+        # 単一なら文字列、複数なら配列 (配列は Irodori v4 のみ)
+        payload["ref_audio"] = ref_paths if len(ref_paths) > 1 else ref_paths[0]
     if args.speed != 1.0:
         payload["speed"] = args.speed
 
@@ -250,18 +265,14 @@ def main() -> None:
             payload["instruct"] = args.instruct
         if args.seconds is not None:
             payload["seconds"] = args.seconds
-        elif args.model in IRODORI_NO_DURATION_PREDICTOR:
-            print(
-                f"注意: {args.model} は duration predictor 非搭載です。--seconds 未指定だと"
-                " 30 秒固定（約24GB）で生成されます。",
-                file=sys.stderr,
-            )
         if args.duration_scale is not None:
             payload["duration_scale"] = args.duration_scale
         if args.num_steps:
             payload["num_steps"] = args.num_steps
         if args.cfg_guidance_mode:
             payload["cfg_guidance_mode"] = args.cfg_guidance_mode
+        if args.max_ref_seconds is not None:
+            payload["max_ref_seconds"] = args.max_ref_seconds
     else:
         # ref_text がファイルパスならファイル内容を読み込む
         ref_text = args.ref_text
@@ -275,8 +286,8 @@ def main() -> None:
             payload["max_tokens"] = args.max_tokens
 
     print(f"モデル:        {args.model} ({'Irodori' if is_irodori else 'Qwen3-TTS'})")
-    print(f"リファレンス:  {ref_audio or '(なし)'}")
-    if is_voice_design and args.instruct:
+    print(f"リファレンス:  {', '.join(ref_paths) if ref_paths else '(なし)'}")
+    if args.instruct:
         print(f"声質の指示:    {args.instruct}")
     print(f"フォーマット:  {response_format}")
     if not is_irodori:

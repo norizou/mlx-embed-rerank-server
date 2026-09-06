@@ -18,12 +18,8 @@
       "qwen3-asr-1.7b-8bit",
       "qwen3-tts-0.6b-base-8bit",
       "qwen3-tts-1.7b-base-8bit",
-      "irodori-tts-500m-v3-fp16",
-      "irodori-tts-500m-v3-8bit",
-      "irodori-tts-500m-v2-fp16",
-      "irodori-tts-500m-v2-8bit",
-      "irodori-tts-600m-v3-voicedesign-fp16",
-      "irodori-tts-600m-v3-voicedesign-8bit"
+      "irodori-tts-v4.1-small-8bit",
+      "irodori-tts-v4.1-small-fp16"
     ],
     "expected_loaded_keys": [
       "loaded_embed_models",
@@ -121,8 +117,7 @@
       "expected_content_type": "audio/wav"
     },
     "tts_irodori": {
-      "model": "irodori-tts-500m-v3-8bit",
-      "voice_design_model": "irodori-tts-600m-v3-voicedesign-8bit",
+      "model": "irodori-tts-v4.1-small-8bit",
       "input": "これはテストです。",
       "response_format": "wav",
       "expected_content_type": "audio/wav",
@@ -150,8 +145,7 @@
     },
     "wrong_engine": {
       "qwen3_model": "qwen3-tts-0.6b-base-8bit",
-      "irodori_base_model": "irodori-tts-500m-v3-8bit",
-      "irodori_voice_design_model": "irodori-tts-600m-v3-voicedesign-8bit"
+      "irodori_model": "irodori-tts-v4.1-small-8bit"
     }
   }
 }

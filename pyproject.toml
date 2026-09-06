@@ -10,7 +10,7 @@ dependencies = [
     "mlx",
     "mlx-embeddings",
     "mlx-lm",
-    "mlx-audio>=0.4.4",
+    "mlx-audio>=0.5.1",
     "python-multipart",
     "numpy",
 ]

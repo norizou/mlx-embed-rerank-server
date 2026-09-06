@@ -113,41 +113,20 @@ AVAILABLE_AUDIO_MODELS = {
         "description": "Qwen3 TTS 1.7B Base 8-bit (Text-to-Speech, Voice Clone, Stable)"
     },
     # --- Irodori TTS (日本語特化, Flow Matching) ---
-    # v3 は duration predictor を内蔵し、出力長を自動推定する。
-    "irodori-tts-500m-v3-fp16": {
-        "id": "mlx-community/Irodori-TTS-500M-v3-fp16",
+    # v4.1-Small は単一チェックポイントでボイスクローン / VoiceDesign (caption) /
+    # 出力長の自動推定をすべて備える。ModernBERT-ja テキストエンコーダと DACVAE を
+    # 同梱するため、推論時の追加ダウンロードが発生しない。
+    "irodori-tts-v4.1-small-8bit": {
+        "id": "mlx-community/Irodori-TTS-v4.1-Small-8bit",
         "type": "tts_irodori",
-        "description": "Irodori TTS 500M v3 fp16 (Japanese TTS, Voice Clone, Auto Duration)"
+        "supports_caption": True,
+        "description": "Irodori TTS v4.1 Small 8-bit (Japanese TTS, Voice Clone + VoiceDesign + Auto Duration)"
     },
-    "irodori-tts-500m-v3-8bit": {
-        "id": "mlx-community/Irodori-TTS-500M-v3-8bit",
+    "irodori-tts-v4.1-small-fp16": {
+        "id": "mlx-community/Irodori-TTS-v4.1-Small-fp16",
         "type": "tts_irodori",
-        "description": "Irodori TTS 500M v3 8-bit (Japanese TTS, Voice Clone, Auto Duration)"
-    },
-    # v2 は duration predictor 非搭載。seconds を指定しない場合は 30 秒固定
-    # (sequence_length=750) で生成され、約 24GB のユニファイドメモリを要する。
-    "irodori-tts-500m-v2-fp16": {
-        "id": "mlx-community/Irodori-TTS-500M-v2-fp16",
-        "type": "tts_irodori",
-        "description": "Irodori TTS 500M v2 fp16 (Japanese TTS, Voice Clone, No Duration Predictor - specify seconds)"
-    },
-    "irodori-tts-500m-v2-8bit": {
-        "id": "mlx-community/Irodori-TTS-500M-v2-8bit",
-        "type": "tts_irodori",
-        "description": "Irodori TTS 500M v2 8-bit (Japanese TTS, Voice Clone, No Duration Predictor - specify seconds)"
-    },
-    # VoiceDesign 版のみ caption conditioning を持ち、instruct で声質を指示できる。
-    "irodori-tts-600m-v3-voicedesign-fp16": {
-        "id": "mlx-community/Irodori-TTS-600M-v3-VoiceDesign-fp16",
-        "type": "tts_irodori",
-        "voice_design": True,
-        "description": "Irodori TTS 600M v3 VoiceDesign fp16 (Japanese TTS, instruct + Voice Clone)"
-    },
-    "irodori-tts-600m-v3-voicedesign-8bit": {
-        "id": "mlx-community/Irodori-TTS-600M-v3-VoiceDesign-8bit",
-        "type": "tts_irodori",
-        "voice_design": True,
-        "description": "Irodori TTS 600M v3 VoiceDesign 8-bit (Japanese TTS, instruct + Voice Clone)"
+        "supports_caption": True,
+        "description": "Irodori TTS v4.1 Small fp16 (Japanese TTS, Voice Clone + VoiceDesign + Auto Duration)"
     },
 }
 
@@ -564,18 +543,21 @@ class SpeechReq(BaseModel):
     response_format: Optional[str] = "mp3"
     # --- 共通 ---
     speed: Optional[float] = 1.0
-    ref_audio: Optional[str] = None
+    # Irodori v4 系はクリップのリストを受け取り、各クリップを個別にエンコードして
+    # 連結する (学習時の形式に一致)。Qwen3-TTS は単一パスのみ。
+    ref_audio: Optional[Union[str, List[str]]] = None
     # --- Qwen3-TTS 専用 ---
     voice: Optional[str] = None
     ref_text: Optional[str] = None
     lang_code: Optional[str] = "auto"
     max_tokens: Optional[int] = None
     # --- Irodori 専用 ---
-    instruct: Optional[str] = None          # 声質の記述 (VoiceDesign 版のみ)
+    instruct: Optional[str] = None          # 声質の記述 (caption 条件を持つモデルのみ)
     seconds: Optional[float] = None         # 出力長を秒で明示
-    duration_scale: Optional[float] = None  # v3 の推定長に対する倍率
+    duration_scale: Optional[float] = None  # 推定された長さに対する倍率
     num_steps: Optional[int] = None         # Euler ステップ数
     cfg_guidance_mode: Optional[str] = None # independent / alternating
+    max_ref_seconds: Optional[float] = None # 参照音声の上限秒 (既定はモデルの 120s)
 
 @app.post("/v1/audio/speech")
 async def audio_speech(req: SpeechReq):
@@ -593,7 +575,6 @@ async def audio_speech(req: SpeechReq):
     tts_engine = config["type"]
     if tts_engine not in TTS_TYPES:
         raise HTTPException(status_code=400, detail=f"Model {model_name} is not a TTS model")
-    is_voice_design = bool(config.get("voice_design"))
 
     irodori_only = {
         "instruct": req.instruct,
@@ -601,20 +582,23 @@ async def audio_speech(req: SpeechReq):
         "duration_scale": req.duration_scale,
         "num_steps": req.num_steps,
         "cfg_guidance_mode": req.cfg_guidance_mode,
+        "max_ref_seconds": req.max_ref_seconds,
     }
     if tts_engine == "tts_irodori":
-        if req.instruct and not is_voice_design:
+        # caption 条件を持たない Irodori 版 (v2/v3 base 等) を登録した場合、
+        # instruct は黙って捨てられるので拒否する。v4.1 は caption を持つ。
+        if req.instruct and not config.get("supports_caption"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Model {model_name} has no caption conditioning and cannot use 'instruct'. "
-                       f"Use an Irodori VoiceDesign model instead.",
-            )
-        if is_voice_design and not (req.instruct or req.ref_audio):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Model {model_name} requires either 'instruct' (a voice description) or 'ref_audio'.",
+                detail=f"Model {model_name} has no caption conditioning and cannot use 'instruct'.",
             )
     else:
+        if isinstance(req.ref_audio, list):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model {model_name} accepts a single ref_audio path, not a list. "
+                       f"Multi-clip references are an Irodori v4 feature.",
+            )
         supplied = [k for k, v in irodori_only.items() if v is not None]
         if supplied:
             raise HTTPException(
@@ -629,8 +613,8 @@ async def audio_speech(req: SpeechReq):
 
     if tts_engine == "tts_irodori":
         # Irodori はリファレンス音声だけでクローンする (書き起こしは不要)。
-        # caption は声質を言葉で指示する VoiceDesign 用の条件で、
-        # ref_text とは別物なのでマッピングしない。
+        # caption は声質を言葉で指示する VoiceDesign 用の条件で、ref_text とは
+        # 別物なのでマッピングしない。v4.1 は ref_audio と caption を併用できる。
         if req.ref_audio:
             generate_kwargs["ref_audio"] = req.ref_audio
         if req.instruct:
@@ -646,6 +630,8 @@ async def audio_speech(req: SpeechReq):
             generate_kwargs["num_steps"] = req.num_steps
         if req.cfg_guidance_mode:
             generate_kwargs["cfg_guidance_mode"] = req.cfg_guidance_mode
+        if req.max_ref_seconds is not None:
+            generate_kwargs["max_ref_seconds"] = req.max_ref_seconds
 
         ignored = [k for k in ("voice", "ref_text", "max_tokens") if getattr(req, k)]
         if req.lang_code and req.lang_code != "auto":
@@ -653,8 +639,8 @@ async def audio_speech(req: SpeechReq):
         if ignored:
             print(f"Warning: {ignored} are Qwen3-TTS parameters and are ignored by {model_name}.")
 
-        # duration predictor 非搭載 (v2) で seconds 未指定だと 30 秒固定
-        # (sequence_length=750) になり、約 24GB のユニファイドメモリを要する。
+        # duration predictor 非搭載のモデル (v2 等) を登録した場合、seconds 未指定だと
+        # 30 秒固定 (sequence_length=750) になり約 24GB を要する。v4.1 は搭載済み。
         dit_cfg = getattr(getattr(tts_model, "config", None), "dit", None)
         if req.seconds is None and not getattr(dit_cfg, "use_duration_predictor", True):
             print(f"Warning: {model_name} has no duration predictor; generating a fixed 30s "

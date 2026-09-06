@@ -85,21 +85,15 @@ class TestTTSEngineParameters:
         detail = resp.json()["detail"]
         assert "seconds" in detail and model in detail
 
-    def test_instruct_rejected_by_irodori_base_model(self, client, engines, expected_status):
-        """caption conditioning only exists on the VoiceDesign variants."""
-        model = engines["irodori_base_model"]
+    def test_multi_clip_ref_audio_rejected_by_qwen3(self, client, engines, expected_status):
+        """A list of reference clips is an Irodori v4 feature; Qwen3 takes one path."""
+        model = engines["qwen3_model"]
         resp = client.post(
             "/v1/audio/speech",
-            json={"input": "x", "model": model, "instruct": "落ち着いた女性の声"},
+            json={"input": "x", "model": model, "ref_audio": ["/a.wav", "/b.wav"]},
         )
         assert resp.status_code == expected_status["tts_wrong_engine_param"]
-        assert "instruct" in resp.json()["detail"]
-
-    def test_voice_design_needs_instruct_or_ref_audio(self, client, engines, expected_status):
-        model = engines["irodori_voice_design_model"]
-        resp = client.post("/v1/audio/speech", json={"input": "x", "model": model})
-        assert resp.status_code == expected_status["tts_wrong_engine_param"]
-        assert "instruct" in resp.json()["detail"]
+        assert "list" in resp.json()["detail"]
 
 
 class TestRequestValidation:

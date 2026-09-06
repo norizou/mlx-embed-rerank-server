@@ -12,7 +12,7 @@
   - **Reranker (2):** `Qwen3-Reranker-0.6B-mxfp8` (default), `Qwen3-VL-Reranker-2B-mxfp8`
   - **ASR (2):** `Qwen3-ASR-1.7B-8bit` (default), `Qwen3-ASR-0.6B-8bit`
   - **TTS — Qwen3 (2):** `Qwen3-TTS-12Hz-0.6B-Base-8bit` (default), `Qwen3-TTS-12Hz-1.7B-Base-8bit`
-  - **TTS — Irodori (6):** `Irodori-TTS-500M-v3-{fp16,8bit}`, `Irodori-TTS-500M-v2-{fp16,8bit}`, `Irodori-TTS-600M-v3-VoiceDesign-{fp16,8bit}` — Japanese-specialised flow-matching engine, registered provisionally pending a benchmark
+  - **TTS — Irodori (2):** `Irodori-TTS-v4.1-Small-{8bit,fp16}` — Japanese-specialised flow-matching engine. One unified checkpoint covering voice cloning, VoiceDesign (caption) and automatic duration; both precisions registered pending a benchmark
 
 ### Architecture
 A single FastAPI app exposes OpenAI-compatible `/v1/embeddings`, `/v1/audio/transcriptions` and `/v1/audio/speech`, plus `/v1/rerank` (alias `/rerank`) and `/health`.
@@ -69,8 +69,9 @@ uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port 1235
 - **`instruction` parameter:** honored only by `qwen3-vl-embedding-2b` and `qwen3-vl-reranker-2b`. The default `qwen3-0.6b` reranker uses a fixed yes/no prompt and ignores it.
 - **Rerank scores:** softmax over the `yes` / `no` logits, so absolute values are small; the ordering is what matters. `top_k` defaults to 10 and `0` means "return everything".
 - **Errors:** `/v1/rerank` and the audio endpoints return `400` for unknown model names; `/v1/embeddings` wraps every exception (including that 400) into a `500` whose `detail` carries the full traceback. Do not expose port 1235 publicly.
-- **Irodori `caption` is not `ref_text`:** `caption` (alias `instruct`) is a *voice description* used only by the VoiceDesign variants — `config.dit.use_caption_condition` gates it, so base variants drop it silently. Never map the ICL transcript `ref_text` onto it. Irodori clones from `ref_audio` alone.
-- **Irodori v2 duration:** v2 has no duration predictor, so without `seconds` it falls back to `config.sampler.sequence_length` (750 frames = 30 s, ~24 GB). `sequence_length` cannot be set through `generate()` — it is popped before the kwargs merge — so `seconds` is the only lever.
+- **Irodori `caption` is not `ref_text`:** `caption` (alias `instruct`) is a *voice description* gated on `config.dit.use_caption_condition`, which v4.1 sets but older base variants do not. Never map the ICL transcript `ref_text` onto it. Irodori clones from `ref_audio` alone. The registry's `supports_caption` flag drives the `instruct` 400, so re-registering a caption-less variant restores the guard automatically.
+- **Irodori duration:** a variant without a duration predictor falls back to `config.sampler.sequence_length` (750 frames = 30 s, ~24 GB) unless `seconds` is passed. `sequence_length` cannot be set through `generate()` — it is popped before the kwargs merge — so `seconds` is the only lever. v4.1 has a predictor, so this only matters if an older variant is re-registered.
+- **Irodori multi-clip reference:** v4 accepts a list for `ref_audio` and encodes each clip separately before concatenating (120 s budget, overridable with `max_ref_seconds`). Qwen3-TTS takes a single path and returns 400 for a list.
 - **Ignored vs rejected TTS params:** Qwen3-only params (`voice`, `ref_text`, `lang_code`, `max_tokens`) sent to Irodori are logged and ignored so OpenAI-compatible clients keep working; Irodori-only params sent to Qwen3, and `instruct` on an Irodori base variant, return `400`.
 - **Images:** the HTTP API is text-only. Qwen3-VL models are served as text embedders/rerankers.
 - **Health:** `/health` returns `status`, `loaded_*_models` (4 lists) and `available_*` (3 lists). There is no `reranker_ready` field.

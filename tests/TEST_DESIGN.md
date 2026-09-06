@@ -125,7 +125,9 @@ uv run pytest tests/test_rerank.py -v   # ファイル単位
 | `TestSpeechIrodori::test_voice_clone_returns_wav` | Irodori は `ref_audio` のみでクローンでき、書き起こしを要さない |
 | `TestSpeechIrodori::test_speed_maps_to_duration_scale` | Irodori に `speed` はないが、サーバーが `duration_scale` へ逆数変換するので 200 |
 | `TestSpeechIrodori::test_qwen3_params_are_ignored_not_rejected` | `voice` / `ref_text` は警告ログのみで **400 にしない**（OpenAI 互換クライアント互換性） |
-| `TestSpeechIrodori::test_voice_design_accepts_instruct` | VoiceDesign 版のみ `instruct`（caption）で声質を指定できる |
+| `TestSpeechIrodori::test_caption_only_voice_design` | v4.1 は `instruct` だけ（参照音声なし）で生成できる |
+| `TestSpeechIrodori::test_ref_audio_and_instruct_combine` | 統合チェックポイントなので `ref_audio` と `instruct` を同時に使える |
+| `TestSpeechIrodori::test_multi_clip_ref_audio` | `ref_audio` の配列は各クリップを個別にエンコードして連結（v4 の機能） |
 | `test_requested_audio_model_appears_in_health` | 音声モデルは自動アンロードされず `/health` に残り続ける |
 
 ### 4.5 `test_errors.py` — エラー応答
@@ -139,12 +141,15 @@ uv run pytest tests/test_rerank.py -v   # ファイル単位
 | `test_stt_returns_400` / `test_tts_returns_400` | 音声は **400** + `Unsupported ASR/TTS model: ...` |
 | `test_tts_model_rejected_by_stt_endpoint` ほか | 種別違いのモデル指定は **400** + `Model ... is not an ASR/TTS model` |
 | `TestTTSEngineParameters::test_irodori_only_param_rejected_by_qwen3` | `seconds` 等の Irodori 専用パラメータを Qwen3-TTS に渡すと **400** |
-| `TestTTSEngineParameters::test_instruct_rejected_by_irodori_base_model` | caption 条件を持たない base 版への `instruct` は **400**（黙って無視しない） |
-| `TestTTSEngineParameters::test_voice_design_needs_instruct_or_ref_audio` | VoiceDesign 版は `instruct` か `ref_audio` のいずれか必須で、無指定は **400** |
+| `TestTTSEngineParameters::test_multi_clip_ref_audio_rejected_by_qwen3` | `ref_audio` の配列は Irodori v4 専用。Qwen3-TTS に渡すと **400** |
 | `TestRequestValidation` | 必須フィールド欠落は Pydantic により **422**、未定義ルートは **404** |
 
 `TestTTSEngineParameters` は `manager.get_tts()` より**前**に検証される契約を固定しています。
 不正リクエストで数 GB のモデルロードが走らないことが要件なので、これらは `audio` マークを付けません。
+
+なお「caption 条件を持たない Irodori 版への `instruct` は 400」という分岐はサーバー側に残していますが、
+登録中の v4.1 は caption 条件を持つため**現状は到達不能**でテストできません。v2 / v3 base 等を
+再登録した時点で有効になります（判定はレジストリの `supports_caption` 駆動）。
 
 ## 5. 意図的にテストしていないこと
 
