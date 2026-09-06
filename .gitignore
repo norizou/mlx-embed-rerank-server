@@ -43,3 +43,13 @@ chroma_db/
 # Foam (editor workspace data)
 .foam/
 
+
+# Voice-clone working data (reference audio, trimmed clips, transcripts).
+# Local material for manual TTS runs; tests synthesize their own audio.
+tests/data/voices/
+
+# Generated speech output from manual TTS runs
+/speech_*.mp3
+/speech_*.wav
+/speech_*.flac
+/speech_*.ogg
