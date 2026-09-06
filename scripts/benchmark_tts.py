@@ -5,7 +5,10 @@
 # ]
 # ///
 
-"""TTS ベンチマーク: Irodori v4.1 の fp16 / 8bit 比較と Qwen3-TTS の対照。
+"""TTS ベンチマーク: Irodori v4.1 (8bit) と Qwen3-TTS の対照。
+
+fp16 は §7/§8 の計測の結果、品質面で 8bit と区別できず速度・メモリ・ディスクで
+劣ることが分かったため削除した（2026-09-06、レジストリからも削除済み）。
 
 BENCHMARK_REPORT.md §6 と同じ手法（ウォームアップ後に 10 回連続実行）で、
 生成時間・音声長・リアルタイム係数を計測します。あわせてモデルごとの
@@ -155,17 +158,9 @@ def main() -> None:
                 "model": "irodori-tts-v4.1-small-8bit",
                 "input": INPUT_TEXT, "ref_audio": ref, "response_format": "wav",
             }),
-            ("irodori-v4.1-fp16 / clone", {
-                "model": "irodori-tts-v4.1-small-fp16",
-                "input": INPUT_TEXT, "ref_audio": ref, "response_format": "wav",
-            }),
             # Irodori v4.1: VoiceDesign（caption のみ）
             ("irodori-v4.1-8bit / caption", {
                 "model": "irodori-tts-v4.1-small-8bit",
-                "input": INPUT_TEXT, "instruct": INSTRUCT, "response_format": "wav",
-            }),
-            ("irodori-v4.1-fp16 / caption", {
-                "model": "irodori-tts-v4.1-small-fp16",
                 "input": INPUT_TEXT, "instruct": INSTRUCT, "response_format": "wav",
             }),
             # Irodori v4.1: num_steps を下げた高速プリセット

@@ -18,8 +18,7 @@
       "qwen3-asr-1.7b-8bit",
       "qwen3-tts-0.6b-base-8bit",
       "qwen3-tts-1.7b-base-8bit",
-      "irodori-tts-v4.1-small-8bit",
-      "irodori-tts-v4.1-small-fp16"
+      "irodori-tts-v4.1-small-8bit"
     ],
     "expected_loaded_keys": [
       "loaded_embed_models",
@@ -31,7 +30,7 @@
       "embed": "bge-m3",
       "rerank": "qwen3-0.6b",
       "asr": "qwen3-asr-1.7b-8bit",
-      "tts": "qwen3-tts-0.6b-base-8bit"
+      "tts": "irodori-tts-v4.1-small-8bit"
     }
   },
   "embedding": {
@@ -137,7 +136,8 @@
       "tts_unknown_model": 400,
       "stt_wrong_type_model": 400,
       "tts_wrong_type_model": 400,
-      "tts_wrong_engine_param": 400
+      "tts_wrong_engine_param": 400,
+      "tts_irodori_missing_reference": 400
     },
     "wrong_type": {
       "tts_model_for_stt": "qwen3-tts-0.6b-base-8bit",

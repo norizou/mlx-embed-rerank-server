@@ -11,7 +11,7 @@ The server uses the following models as defaults (used when no `model` is specif
 - **Embedding**: `bge-m3` (*bge-m3-mlx-fp16*)
 - **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
 - **ASR (STT)**: `qwen3-asr-1.7b-8bit` (*Qwen3-ASR-1.7B-8bit*)
-- **TTS**: `qwen3-tts-0.6b-base-8bit` (*Qwen3-TTS-12Hz-0.6B-Base-8bit*)
+- **TTS**: `irodori-tts-v4.1-small-8bit` (*Irodori-TTS-v4.1-Small-8bit*)
 
 Models are **lazily loaded on the first request** (not at startup). After a heavy multimodal Qwen3-VL model is unloaded due to inactivity, the default embedding/rerank models are automatically preloaded and kept warm.
 *(Heavy multimodal models like Qwen3-VL-2B are loaded dynamically on demand and unloaded automatically.)*
@@ -23,7 +23,7 @@ Models are **lazily loaded on the first request** (not at startup). After a heav
 - ✅ **Unified Process & Port**: Integrates Embedding, Reranking and Audio into a single FastAPI process (API port `1235`, dedicated health port `1236`).
 - ✅ **OpenAI-Compatible API**: `/v1/embeddings`, `/v1/audio/transcriptions` and `/v1/audio/speech` follow OpenAI's request/response shapes.
 - ✅ **Apple Silicon Native**: Powered by Apple's MLX library for GPU-accelerated inference on Mac hardware.
-- ✅ **Multiple Models per Task**: 5 embedding models, 2 rerankers and 6 audio models selectable per request.
+- ✅ **Multiple Models per Task**: 5 embedding models, 2 rerankers and 5 audio models selectable per request.
 - ✅ **Multimodal Models**: Qwen3-VL Embedding/Reranker (2B) with `instruction` support (requires `torch` / `torchvision`, see [Requirements](#-requirements)).
 - ✅ **Audio Capabilities**: STT (`/v1/audio/transcriptions`) and TTS with voice cloning (`/v1/audio/speech`). Two TTS engines: Qwen3-TTS and the Japanese-specialised Irodori TTS.
 - ✅ **Smart Auto-Fallback**: Unloads heavy Qwen3-VL models after inactivity, clears the Metal cache and preloads the lightweight default models.
@@ -65,7 +65,7 @@ A dedicated health-check server also listens on `http://localhost:1236` (see [Su
   "available_embed": ["gemma-3-300m", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
   "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
-                      "irodori-tts-v4.1-small-8bit", "irodori-tts-v4.1-small-fp16"]
+                      "irodori-tts-v4.1-small-8bit"]
 }
 ```
 
@@ -195,18 +195,19 @@ You can select a model by passing the `model` parameter in your API request. If 
 | `qwen3-0.6b` | `Qwen3-Reranker-0.6B-mxfp8` | Generative cross-encoder (Yes/No logits), fast and accurate. |
 | `qwen3-vl-reranker-2b` | `Qwen3-VL-Reranker-2B-mxfp8` | 2B multimodal reranking, supports `instruction`. |
 
-### Audio (STT Default: `qwen3-asr-1.7b-8bit` / TTS Default: `qwen3-tts-0.6b-base-8bit`)
+### Audio (STT Default: `qwen3-asr-1.7b-8bit` / TTS Default: `irodori-tts-v4.1-small-8bit`)
 | Model ID | Hugging Face Model | Description / Strengths |
 | :--- | :--- | :--- |
 | `qwen3-asr-0.6b-8bit` | `Qwen3-ASR-0.6B-8bit` | Speech-to-Text (ASR), fastest (65.8x realtime). |
 | `qwen3-asr-1.7b-8bit` | `Qwen3-ASR-1.7B-8bit` | Speech-to-Text (ASR), best accuracy (43.9x realtime, default). |
-| `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | Text-to-Speech (TTS), voice cloning, fast load (default). |
+| `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | Text-to-Speech (TTS), voice cloning, fast load. |
 | `qwen3-tts-1.7b-base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | Text-to-Speech (TTS), most stable speech tempo. |
-| `irodori-tts-v4.1-small-8bit` | `Irodori-TTS-v4.1-Small-8bit` | Japanese-specialised TTS: voice cloning, VoiceDesign and automatic duration in one model. |
-| `irodori-tts-v4.1-small-fp16` | `Irodori-TTS-v4.1-Small-fp16` | fp16 variant of the above. |
+| `irodori-tts-v4.1-small-8bit` | `Irodori-TTS-v4.1-Small-8bit` | Japanese-specialised TTS: voice cloning, VoiceDesign and automatic duration in one model (default). |
+
+Irodori has no built-in default voice equivalent to Qwen3's `voice` presets, so either `ref_audio` (voice clone) or `instruct` (VoiceDesign) is required. Omitting both returns `400` (this prevents an unconditioned, undefined-voice generation).
 
 4-bit variants were evaluated and dropped; all shipped audio models are 8-bit. See [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §5.6 / §6.5.
-Both Irodori precisions are registered so fp16 and 8-bit can be compared, and will be pruned after benchmarking.
+The Irodori fp16 variant (`irodori-tts-v4.1-small-fp16`) was removed: §7/§8 measurements found it indistinguishable from 8-bit on quality while consistently worse on speed, memory and disk.
 
 **What v4.1-Small brings**
 

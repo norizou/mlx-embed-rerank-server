@@ -78,7 +78,7 @@ SUPPORTED_FORMATS = ("mp3", "wav", "flac", "ogg")
 
 QWEN3_MODELS = ("qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit")
 # v4.1-Small は単一チェックポイントでクローン / VoiceDesign / 長さ自動推定を兼ねる
-IRODORI_MODELS = ("irodori-tts-v4.1-small-8bit", "irodori-tts-v4.1-small-fp16")
+IRODORI_MODELS = ("irodori-tts-v4.1-small-8bit",)
 ALL_MODELS = QWEN3_MODELS + IRODORI_MODELS
 
 

@@ -104,6 +104,15 @@ class TestTTSEngineParameters:
         assert resp.status_code == expected_status["tts_wrong_engine_param"]
         assert "list" in resp.json()["detail"]
 
+    def test_irodori_default_without_reference_rejected(self, client, expected_status):
+        """DEFAULT_TTS is Irodori, which has no built-in default voice (unlike
+        Qwen3's `voice` presets); omitting both ref_audio and instruct must 400
+        rather than silently return an unconditioned, undefined voice."""
+        resp = client.post("/v1/audio/speech", json={"input": "x"})
+        assert resp.status_code == expected_status["tts_irodori_missing_reference"]
+        detail = resp.json()["detail"]
+        assert "ref_audio" in detail and "instruct" in detail
+
 
 class TestRequestValidation:
     """FastAPI/Pydantic validation happens before any model is touched."""

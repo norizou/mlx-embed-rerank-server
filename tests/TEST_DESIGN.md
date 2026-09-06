@@ -121,7 +121,7 @@ uv run pytest tests/test_rerank.py -v   # ファイル単位
 | `test_temporary_file_is_cleaned_up` | `/tmp/stt_*` が処理後に残らない（`finally` での削除） |
 | `test_returns_audio_bytes` | TTS の Content-Type と `Content-Disposition: filename=speech.<fmt>`、本文が非空 |
 | `test_wav_output_has_riff_header` | wav 出力が実際に RIFF ヘッダを持つ |
-| `test_default_model_when_model_omitted`（TTS） | `DEFAULT_TTS` で動作 |
+| `test_default_model_when_model_omitted`（TTS） | `DEFAULT_TTS`（Irodori）で動作。Irodori には既定話者が無いため `ref_audio` を明示的に渡す |
 | `TestSpeechIrodori::test_voice_clone_returns_wav` | Irodori は `ref_audio` のみでクローンでき、書き起こしを要さない |
 | `TestSpeechIrodori::test_speed_maps_to_duration_scale` | Irodori に `speed` はないが、サーバーが `duration_scale` へ逆数変換するので 200 |
 | `TestSpeechIrodori::test_qwen3_params_are_ignored_not_rejected` | `voice` / `ref_text` は警告ログのみで **400 にしない**（OpenAI 互換クライアント互換性） |
@@ -142,6 +142,7 @@ uv run pytest tests/test_rerank.py -v   # ファイル単位
 | `test_tts_model_rejected_by_stt_endpoint` ほか | 種別違いのモデル指定は **400** + `Model ... is not an ASR/TTS model` |
 | `TestTTSEngineParameters::test_irodori_only_param_rejected_by_qwen3` | `seconds` 等の Irodori 専用パラメータを Qwen3-TTS に渡すと **400** |
 | `TestTTSEngineParameters::test_multi_clip_ref_audio_rejected_by_qwen3` | `ref_audio` の配列は Irodori v4 専用。Qwen3-TTS に渡すと **400** |
+| `TestTTSEngineParameters::test_irodori_default_without_reference_rejected` | `DEFAULT_TTS`（Irodori）は既定話者を持たないため、`ref_audio` と `instruct` を両方省略すると **400**（無条件生成の防止） |
 | `TestRequestValidation` | 必須フィールド欠落は Pydantic により **422**、未定義ルートは **404** |
 
 `TestTTSEngineParameters` は `manager.get_tts()` より**前**に検証される契約を固定しています。

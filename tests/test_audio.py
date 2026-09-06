@@ -97,9 +97,22 @@ class TestSpeech:
         assert resp.status_code == 200, resp.text[:400]
         assert resp.content[:4] == b"RIFF"
 
-    def test_default_model_when_model_omitted(self, client, test_cases):
-        """DEFAULT_TTS is the model the benchmark selected."""
-        resp = client.post("/v1/audio/speech", json={"input": "短いテスト", "response_format": "wav"})
+    def test_default_model_when_model_omitted(self, client, test_cases, tmp_path):
+        """DEFAULT_TTS is Irodori, which has no built-in default voice, so the
+        request must still supply a reference (see TestSpeechIrodori)."""
+        case = test_cases["audio"]["tts_irodori"]
+        ref = _sine_wav_path(
+            tmp_path, case["ref_sample_rate"], case["ref_duration_sec"], case["ref_frequency"]
+        )
+        resp = client.post(
+            "/v1/audio/speech",
+            json={
+                "input": "短いテスト",
+                "ref_audio": ref,
+                "seconds": case["seconds"],
+                "response_format": "wav",
+            },
+        )
         assert resp.status_code == 200, resp.text[:400]
         assert resp.headers["content-type"] == "audio/wav"
 

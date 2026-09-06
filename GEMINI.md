@@ -11,8 +11,8 @@
   - **Embedding (5):** `bge-m3` (default), `bge-m3-8bit`, `embeddinggemma-300m-bf16`, `Qwen3-Embedding-0.6B-mxfp8`, `Qwen3-VL-Embedding-2B-mxfp8`
   - **Reranker (2):** `Qwen3-Reranker-0.6B-mxfp8` (default), `Qwen3-VL-Reranker-2B-mxfp8`
   - **ASR (2):** `Qwen3-ASR-1.7B-8bit` (default), `Qwen3-ASR-0.6B-8bit`
-  - **TTS — Qwen3 (2):** `Qwen3-TTS-12Hz-0.6B-Base-8bit` (default), `Qwen3-TTS-12Hz-1.7B-Base-8bit`
-  - **TTS — Irodori (2):** `Irodori-TTS-v4.1-Small-{8bit,fp16}` — Japanese-specialised flow-matching engine. One unified checkpoint covering voice cloning, VoiceDesign (caption) and automatic duration; both precisions registered pending a benchmark
+  - **TTS — Qwen3 (2):** `Qwen3-TTS-12Hz-0.6B-Base-8bit`, `Qwen3-TTS-12Hz-1.7B-Base-8bit`
+  - **TTS — Irodori (1):** `Irodori-TTS-v4.1-Small-8bit` (default) — Japanese-specialised flow-matching engine. One unified checkpoint covering voice cloning, VoiceDesign (caption) and automatic duration. The fp16 variant was removed (`BENCHMARK_REPORT.md` §7/§8 found it indistinguishable from 8bit on quality, worse on speed/memory/disk)
 
 ### Architecture
 A single FastAPI app exposes OpenAI-compatible `/v1/embeddings`, `/v1/audio/transcriptions` and `/v1/audio/speech`, plus `/v1/rerank` (alias `/rerank`) and `/health`.
@@ -73,6 +73,7 @@ uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port 1235
 - **Irodori duration:** a variant without a duration predictor falls back to `config.sampler.sequence_length` (750 frames = 30 s, ~24 GB) unless `seconds` is passed. `sequence_length` cannot be set through `generate()` — it is popped before the kwargs merge — so `seconds` is the only lever. v4.1 has a predictor, so this only matters if an older variant is re-registered.
 - **Irodori multi-clip reference:** v4 accepts a list for `ref_audio` and encodes each clip separately before concatenating (120 s budget, overridable with `max_ref_seconds`). Qwen3-TTS takes a single path and returns 400 for a list.
 - **Ignored vs rejected TTS params:** Qwen3-only params (`voice`, `ref_text`, `lang_code`, `max_tokens`) sent to Irodori are logged and ignored so OpenAI-compatible clients keep working; Irodori-only params sent to Qwen3, and `instruct` on an Irodori base variant, return `400`.
+- **Irodori has no built-in default voice:** unlike Qwen3's `voice` presets, omitting both `ref_audio` and `instruct` on an Irodori model would silently zero out the reference embedding and generate an unconditioned, undefined voice instead of erroring. `/v1/audio/speech` rejects this with `400` before `get_tts()` runs. Since `DEFAULT_TTS` is now `irodori-tts-v4.1-small-8bit`, a bare call with only `input` (no `model`, no `ref_audio`/`instruct`) now 400s — Qwen3-TTS clients must pass `model` explicitly if they rely on the old model-omitted default.
 - **Images:** the HTTP API is text-only. Qwen3-VL models are served as text embedders/rerankers.
 - **Health:** `/health` returns `status`, `loaded_*_models` (4 lists) and `available_*` (3 lists). There is no `reranker_ready` field.
 

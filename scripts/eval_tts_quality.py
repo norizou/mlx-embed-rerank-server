@@ -66,7 +66,6 @@ SPEAKERS = {
 
 MODELS = [
     ("irodori-8bit",           {"model": "irodori-tts-v4.1-small-8bit"}),
-    ("irodori-fp16",           {"model": "irodori-tts-v4.1-small-fp16"}),
     ("irodori-8bit-steps10",   {"model": "irodori-tts-v4.1-small-8bit", "num_steps": 10}),
     ("qwen3-0.6b",             {"model": "qwen3-tts-0.6b-base-8bit"}),
     ("qwen3-1.7b",             {"model": "qwen3-tts-1.7b-base-8bit"}),

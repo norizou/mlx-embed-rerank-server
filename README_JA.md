@@ -15,7 +15,7 @@ RAG（Retrieval-Augmented Generation）用の **Embedding / Rerank / 音声エ�
 - **Embedding**: `bge-m3`（*bge-m3-mlx-fp16*）
 - **Reranker**: `qwen3-0.6b`（*Qwen3-Reranker-0.6B-mxfp8*）
 - **ASR（STT）**: `qwen3-asr-1.7b-8bit`（*Qwen3-ASR-1.7B-8bit*）
-- **TTS**: `qwen3-tts-0.6b-base-8bit`（*Qwen3-TTS-12Hz-0.6B-Base-8bit*）
+- **TTS**: `irodori-tts-v4.1-small-8bit`（*Irodori-TTS-v4.1-Small-8bit*）
 
 モデルは**起動時ではなく初回リクエスト時に遅延ロード**されます。重い Qwen3-VL 系モデルが無使用でアンロードされた後は、デフォルトの Embedding / Rerank モデルが自動でプリロードされ、ウォーム状態で待機します。
 
@@ -26,7 +26,7 @@ RAG（Retrieval-Augmented Generation）用の **Embedding / Rerank / 音声エ�
 - ✅ Embedding / Rerank / 音声を **1 プロセス**で提供（API ポート `1235`、ヘルス専用ポート `1236`）
 - ✅ OpenAI 互換 API（`/v1/embeddings`, `/v1/audio/transcriptions`, `/v1/audio/speech`）
 - ✅ Apple Silicon ネイティブの **MLX** による GPU 推論
-- ✅ Embedding 5 モデル / Reranker 2 モデル / 音声 6 モデルをリクエスト単位で切り替え
+- ✅ Embedding 5 モデル / Reranker 2 モデル / 音声 5 モデルをリクエスト単位で切り替え
 - ✅ Qwen3-VL Embedding / Reranker 2B（`instruction` 対応。`torch` / `torchvision` が別途必要 → [動作環境](#-動作環境)）
 - ✅ STT（`/v1/audio/transcriptions`）と、ボイスクローン対応 TTS（`/v1/audio/speech`）。TTS は Qwen3-TTS と日本語特化の Irodori TTS の 2 エンジン
 - ✅ Qwen3-VL の自動アンロード + デフォルトモデルのプリロード（メモリ最適化）
@@ -70,7 +70,7 @@ http://localhost:1235
   "available_embed": ["gemma-3-300m", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
   "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
-                      "irodori-tts-v4.1-small-8bit", "irodori-tts-v4.1-small-fp16"]
+                      "irodori-tts-v4.1-small-8bit"]
 }
 ```
 
@@ -213,19 +213,20 @@ sequenceDiagram
 | `qwen3-0.6b` | `Qwen3-Reranker-0.6B-mxfp8` | 生成型クロスエンコーダ（Yes/No ロジット）。高速・高精度 |
 | `qwen3-vl-reranker-2b` | `Qwen3-VL-Reranker-2B-mxfp8` | 2B マルチモーダル。`instruction` 対応 |
 
-### Audio (STT デフォルト: `qwen3-asr-1.7b-8bit` / TTS デフォルト: `qwen3-tts-0.6b-base-8bit`)
+### Audio (STT デフォルト: `qwen3-asr-1.7b-8bit` / TTS デフォルト: `irodori-tts-v4.1-small-8bit`)
 
 | モデル ID | Hugging Face モデル | 特徴 |
 | :--- | :--- | :--- |
 | `qwen3-asr-0.6b-8bit` | `Qwen3-ASR-0.6B-8bit` | 音声認識。最速（リアルタイム比 65.8x） |
 | `qwen3-asr-1.7b-8bit` | `Qwen3-ASR-1.7B-8bit` | 音声認識。最高精度（43.9x、デフォルト） |
-| `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | 音声合成・ボイスクローン。ロードが速い（デフォルト） |
+| `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | 音声合成・ボイスクローン。ロードが速い |
 | `qwen3-tts-1.7b-base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | 音声合成。話速が最も安定 |
-| `irodori-tts-v4.1-small-8bit` | `Irodori-TTS-v4.1-Small-8bit` | 日本語特化 TTS。ボイスクローン＋VoiceDesign＋出力長の自動推定を単一モデルで提供 |
-| `irodori-tts-v4.1-small-fp16` | `Irodori-TTS-v4.1-Small-fp16` | 同上の fp16 版 |
+| `irodori-tts-v4.1-small-8bit` | `Irodori-TTS-v4.1-Small-8bit` | 日本語特化 TTS。ボイスクローン＋VoiceDesign＋出力長の自動推定を単一モデルで提供（デフォルト） |
+
+Irodori には Qwen3 の `voice` プリセットに相当する既定話者が無いため、`ref_audio`（ボイスクローン）か `instruct`（VoiceDesign）のどちらかが必須です。両方省略すると `400` を返します（無条件生成による素性不明の声を防ぐため）。
 
 4bit 版は評価の結果採用を見送り、音声モデルは 8bit に統一しています（[BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §5.6 / §6.5）。
-Irodori は fp16 / 8bit の比較のため両方を登録しており、ベンチマーク後に整理する予定です。
+Irodori の fp16 版（`irodori-tts-v4.1-small-fp16`）は §7/§8 の計測で品質面が 8bit と区別できず、速度・メモリ・ディスクで劣ることが分かったため削除しました。
 
 **v4.1-Small の特徴**
 
@@ -614,6 +615,18 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-09-06 — Irodori fp16 の削除
+
+- `irodori-tts-v4.1-small-fp16` を `AVAILABLE_AUDIO_MODELS` から削除。音声モデルは計 5 件
+- §7/§8 の計測で fp16 と 8bit は品質面で区別できず、fp16 は生成速度・RSS・ディスクで一貫して劣っていたため
+- `scripts/benchmark_tts.py` / `scripts/eval_tts_quality.py` / `scripts/tts_voice_clone.py` から fp16 ケースを削除
+
+### 2026-09-06 — `DEFAULT_TTS` を Irodori 8bit に変更
+
+- 試聴と §7/§8 の計測結果を踏まえ、`DEFAULT_TTS` を `qwen3-tts-0.6b-base-8bit` → **`irodori-tts-v4.1-small-8bit`** に変更
+- Irodori には Qwen3 の `voice` プリセットに相当する既定話者が無く、`ref_audio` も `instruct` も省略すると参照埋め込みがゼロ化された無条件生成（素性不明の声）になるため、**両方省略した場合は `400` で拒否**するよう `/v1/audio/speech` の検証を追加
+- `model` を省略した呼び出しは `ref_audio` または `instruct` が必須になった（Qwen3 モデルを明示指定する場合は従来通り両方省略可）
 
 ### 2026-09-06 — TTS 品質評価と 30 秒上限の修正
 

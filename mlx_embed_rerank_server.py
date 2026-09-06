@@ -122,12 +122,6 @@ AVAILABLE_AUDIO_MODELS = {
         "supports_caption": True,
         "description": "Irodori TTS v4.1 Small 8-bit (Japanese TTS, Voice Clone + VoiceDesign + Auto Duration)"
     },
-    "irodori-tts-v4.1-small-fp16": {
-        "id": "mlx-community/Irodori-TTS-v4.1-Small-fp16",
-        "type": "tts_irodori",
-        "supports_caption": True,
-        "description": "Irodori TTS v4.1 Small fp16 (Japanese TTS, Voice Clone + VoiceDesign + Auto Duration)"
-    },
 }
 
 # /v1/audio/speech が受け付けるモデル種別。エンジンごとに generate() の
@@ -137,7 +131,7 @@ TTS_TYPES = {"tts", "tts_irodori"}
 DEFAULT_EMBED = "bge-m3"
 DEFAULT_RERANK = "qwen3-0.6b"
 DEFAULT_ASR = "qwen3-asr-1.7b-8bit"
-DEFAULT_TTS = "qwen3-tts-0.6b-base-8bit"
+DEFAULT_TTS = "irodori-tts-v4.1-small-8bit"
 
 # =====================
 # モデルマネージャ
@@ -597,6 +591,15 @@ async def audio_speech(req: SpeechReq):
             raise HTTPException(
                 status_code=400,
                 detail=f"Model {model_name} has no caption conditioning and cannot use 'instruct'.",
+            )
+        # Irodori には Qwen3 の voice プリセットに相当する既定話者が無い。両方省略すると
+        # 参照埋め込みがゼロ化された無条件生成になり、エラーにならず素性不明の声が返る
+        # ため、黙って通さず拒否する。
+        if not req.ref_audio and not req.instruct:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model {model_name} has no built-in default voice; "
+                       f"pass 'ref_audio' (voice clone) or 'instruct' (VoiceDesign).",
             )
     else:
         if isinstance(req.ref_audio, list):
