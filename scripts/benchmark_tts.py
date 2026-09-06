@@ -42,6 +42,8 @@ INPUT_TEXT = (
     "モデルの精度を高めるためには、質の高いデータと継続的な評価が重要です。"
 )
 INSTRUCT = "落ち着いた男性の声で、ニュース原稿のように明瞭に読み上げてください。"
+# Qwen3-TTS の ICL に必要な参照音声の書き起こし（Irodori では不要）
+REF_TEXT = "人類が増えすぎた人口を宇宙に移民させるようになって、すでに半世紀。"
 
 
 def server_rss_mb() -> float | None:
@@ -130,6 +132,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ref-audio", required=True, help="参照音声（サーバーから見たパス）")
     ap.add_argument("--runs", type=int, default=RUNS)
+    ap.add_argument("--cases", nargs="*", default=None,
+                    help="ラベルの部分一致でケースを絞る（例: --cases qwen3-tts-1.7b）")
     ap.add_argument("--out", default="/tmp/tts_bench.json")
     args = ap.parse_args()
 
@@ -170,14 +174,26 @@ def main() -> None:
                 "input": INPUT_TEXT, "ref_audio": ref, "num_steps": 10,
                 "response_format": "wav",
             }),
-            # 対照: 現行デフォルトの Qwen3-TTS（ICL には書き起こしが要る）
+            # 対照: Qwen3-TTS（ICL には書き起こしが要る）
             ("qwen3-tts-0.6b-8bit / clone", {
                 "model": "qwen3-tts-0.6b-base-8bit",
                 "input": INPUT_TEXT, "ref_audio": ref,
-                "ref_text": "人類が増えすぎた人口を宇宙に移民させるようになって、すでに半世紀。",
-                "response_format": "wav",
+                "ref_text": REF_TEXT, "response_format": "wav",
+            }),
+            # 1.7B は §6 で「話速が最も安定」を理由に残したモデル。
+            # Irodori の duration predictor がその長所を上回るかを同条件で確認する。
+            ("qwen3-tts-1.7b-8bit / clone", {
+                "model": "qwen3-tts-1.7b-base-8bit",
+                "input": INPUT_TEXT, "ref_audio": ref,
+                "ref_text": REF_TEXT, "response_format": "wav",
             }),
         ]
+
+        if args.cases:
+            cases = [(l, p) for l, p in cases if any(c in l for c in args.cases)]
+            if not cases:
+                print("エラー: --cases に一致するケースがありません。", file=sys.stderr)
+                sys.exit(1)
 
         results = []
         for label, payload in cases:

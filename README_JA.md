@@ -258,7 +258,8 @@ ChromaDB に格納した日本語 1000 件での実測（[BENCHMARK_REPORT.md](B
 | Embedding | `bge-m3` | 1000 件を 6.10 秒（キャッシュ後） |
 | Rerank | `qwen3-0.6b` | Top100 を約 2.0 秒（約 20 ms/件） |
 | STT | `qwen3-asr-1.7b-8bit` | 32.9 秒の音声を 0.75 秒（43.9x リアルタイム） |
-| TTS | `qwen3-tts-0.6b-base-8bit` | 平均生成 3.31 秒（4.1x リアルタイム） |
+| TTS | `qwen3-tts-0.6b-base-8bit` | 平均生成 2.89 秒（4.4x リアルタイム）。音声長は std≈0.54 でばらつく |
+| TTS | `irodori-tts-v4.1-small-8bit` | 平均生成 3.96 秒（`num_steps=10` で 2.65 秒 / 5.3x）。**音声長は std=0.000 で完全に一定** |
 
 計測条件・全試行の数値・精度比較は [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) を参照してください。
 
@@ -607,6 +608,17 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-09-06 — TTS 設計書の追加と再ベンチマーク
+
+- [TTS_ENGINE_DESIGN.md](TTS_ENGINE_DESIGN.md) を追加。二エンジン構成の設計判断・実装・テスト戦略を記録
+- `scripts/benchmark_tts.py` を追加し、Irodori v4.1（8bit / fp16）と Qwen3-TTS（0.6B / 1.7B）を同一条件で再測定 → [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §7
+- 主な知見:
+  - **Irodori は出力長が完全に決定論的**（std=0.000）。Qwen3-TTS は 0.6B / 1.7B とも std≈0.55
+  - **fp16 は 8bit より全指標で同等以下**（生成 +3%、RSS +567MB、ディスク +0.5GB）。数値上は 8bit 一本化が妥当
+  - **`num_steps=10` で 33% 高速化**（3.96s → 2.65s）し、出力長は変わらない
+  - **`qwen3-tts-1.7b-base-8bit` を残した根拠が再現せず**（§6 の std=0.255 → 今回 std=0.553）。削除候補
+- ※ 音質・声の再現度は自動計測の対象外で、未評価です
 
 ### 2026-09-06 — Irodori を v4.1-Small に一本化
 

@@ -239,7 +239,8 @@ Measured on 1000 Japanese documents indexed in ChromaDB ([BENCHMARK_REPORT.md](B
 | Embedding | `bge-m3` | 1000 docs in 6.10 s (cached) |
 | Rerank | `qwen3-0.6b` | top-100 in ~2.0 s (~20 ms/doc) |
 | STT | `qwen3-asr-1.7b-8bit` | 32.9 s audio in 0.75 s (43.9x realtime) |
-| TTS | `qwen3-tts-0.6b-base-8bit` | 3.31 s average generation (4.1x realtime) |
+| TTS | `qwen3-tts-0.6b-base-8bit` | 2.89 s average generation (4.4x realtime); audio length varies (std≈0.54) |
+| TTS | `irodori-tts-v4.1-small-8bit` | 3.96 s average (2.65 s / 5.3x at `num_steps=10`); **audio length is fully deterministic (std=0.000)** |
 
 Full methodology, per-run numbers and accuracy comparisons: [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md).
 

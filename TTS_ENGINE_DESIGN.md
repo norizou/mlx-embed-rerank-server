@@ -4,7 +4,7 @@
 エンドポイントで提供しています。本書はその設計判断・実装・テスト戦略をまとめたものです。
 
 - 対象コード: [`mlx_embed_rerank_server.py`](mlx_embed_rerank_server.py) の `AVAILABLE_AUDIO_MODELS` と `audio_speech()`
-- 実測値: [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §6
+- 実測値: [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §7（Irodori v4.1 と Qwen3-TTS の比較）、§6（Qwen3-TTS の初期評価）
 - テスト全体の設計: [tests/TEST_DESIGN.md](tests/TEST_DESIGN.md)
 - 利用方法: [README_JA.md](README_JA.md) の「音声合成（TTS）」
 
@@ -175,6 +175,16 @@ Irodori には話速の概念がなく、**出力長そのもの**を制御し�
 | `seconds` | 出力長を秒で明示（`min_seconds` / `max_seconds` でクランプ） |
 | `duration_scale` | duration predictor の推定長に対する倍率 |
 | いずれも未指定 | duration predictor が推定（v4.1 は搭載） |
+
+この方式の副次的な効果として、**Irodori の出力長は完全に決定論的**になります。
+duration predictor が長さを決めてから Flow Matching で生成するため、
+同じ入力なら 10 回とも同一長になります（[BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §7 で std=0.000）。
+Qwen3-TTS は `temperature=0.9` のサンプリングが長さに直結するため std≈0.55 でばらつきます。
+字幕同期のように尺が要件となる用途では、この差がエンジン選択の決め手になります。
+
+`num_steps`（Euler ステップ数、既定 40）を下げても**長さは変わりません**。
+ステップ数は積分の細かさ＝品質側のパラメータで、長さは duration predictor が決めるためです。
+`num_steps=10` で生成時間は 33% 短縮します（3.960s → 2.645s）。
 
 **`sequence_length` は `generate()` 経由では制御できません。** ライブラリ側で
 kwargs のマージ前に `sampler_cfg.pop("sequence_length")` されるためです。
