@@ -48,6 +48,7 @@ A dedicated health-check server also listens on `http://localhost:1236` (see [Su
 | Method | Path                    | Description |
 |:-------|:------------------------|:------------|
 | `GET`  | `/health`               | Health check, returning loaded and available models. |
+| `GET`  | `/v1/models`            | Lists all available models in OpenAI list format (for client connection checks / model pickers). |
 | `POST` | `/v1/embeddings`        | Generates **text** embeddings (OpenAI-compatible). |
 | `POST` | `/v1/rerank` (alias `/rerank`) | Re-ranks query and document pairs. |
 | `POST` | `/v1/audio/transcriptions` | Transcribes audio files to text (STT, OpenAI-compatible). |
@@ -66,6 +67,20 @@ A dedicated health-check server also listens on `http://localhost:1236` (see [Su
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
   "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
                       "irodori-tts-v4.1-small-8bit"]
+}
+```
+
+### `GET /v1/models`
+
+Lists every model in `available_*` (loaded or not) in the OpenAI `list` shape. Each entry also carries a non-standard `type` field (`embedding` / `rerank` / `audio`).
+
+```json
+{
+  "object": "list",
+  "data": [
+    {"id": "bge-m3", "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": "embedding"},
+    {"id": "qwen3-0.6b", "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": "rerank"}
+  ]
 }
 ```
 

@@ -56,6 +56,17 @@ class TestHealthEndpoint:
         }
 
 
+class TestModelsEndpoint:
+    def test_lists_all_available_models(self, client, health):
+        resp = client.get("/v1/models")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["object"] == "list"
+        ids = {m["id"] for m in body["data"]}
+        assert ids == set(health["available_embed"]) | set(health["available_rerank"]) | set(health["available_audio"])
+        assert all(m["object"] == "model" for m in body["data"])
+
+
 class TestSupervisorProbe:
     """run_mlx_server.sh polls port 1236, not 1235 (see BENCHMARK_REPORT §6.6)."""
 

@@ -3,6 +3,8 @@ import time
 import io
 import os
 import uuid
+import datetime
+import _strptime
 import numpy as np
 import mlx.core as mx
 from fastapi import FastAPI, HTTPException, File, Form, UploadFile
@@ -485,6 +487,18 @@ def health():
         "available_rerank": list(AVAILABLE_RERANK_MODELS.keys()),
         "available_audio": list(AVAILABLE_AUDIO_MODELS.keys()),
     }
+
+@app.get("/v1/models")
+def list_models():
+    data = []
+    for kind, models in (
+        ("embedding", AVAILABLE_EMBED_MODELS),
+        ("rerank", AVAILABLE_RERANK_MODELS),
+        ("audio", AVAILABLE_AUDIO_MODELS),
+    ):
+        for name in models:
+            data.append({"id": name, "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": kind})
+    return {"object": "list", "data": data}
 
 # =====================
 # Audio Endpoints

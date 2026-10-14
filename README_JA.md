@@ -53,6 +53,7 @@ http://localhost:1235
 | Method | Path                    | 内容 |
 |------|--------------------------|------|
 | GET  | `/health`               | ロード済み／利用可能モデルを含むヘルスチェック |
+| GET  | `/v1/models`            | 利用可能な全モデルの一覧（OpenAI 形式。クライアントの接続確認・モデル選択用） |
 | POST | `/v1/embeddings`        | **テキスト**の埋め込み生成（OpenAI 互換） |
 | POST | `/v1/rerank`（別名 `/rerank`） | クエリと文書群のリランク |
 | POST | `/v1/audio/transcriptions` | 音声ファイルの文字起こし（STT、OpenAI 互換） |
@@ -71,6 +72,20 @@ http://localhost:1235
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
   "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
                       "irodori-tts-v4.1-small-8bit"]
+}
+```
+
+### `GET /v1/models`
+
+`available_*` の全モデル（ロード済みかどうかを問わない）を OpenAI の `list` 形式で返します。各要素には標準にない `type` フィールド（`embedding` / `rerank` / `audio`）も付きます。
+
+```json
+{
+  "object": "list",
+  "data": [
+    {"id": "bge-m3", "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": "embedding"},
+    {"id": "qwen3-0.6b", "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": "rerank"}
+  ]
 }
 ```
 

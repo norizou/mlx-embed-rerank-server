@@ -15,7 +15,7 @@
   - **TTS — Irodori (1):** `Irodori-TTS-v4.1-Small-8bit` (default) — Japanese-specialised flow-matching engine. One unified checkpoint covering voice cloning, VoiceDesign (caption) and automatic duration. The fp16 variant was removed (`BENCHMARK_REPORT.md` §7/§8 found it indistinguishable from 8bit on quality, worse on speed/memory/disk)
 
 ### Architecture
-A single FastAPI app exposes OpenAI-compatible `/v1/embeddings`, `/v1/audio/transcriptions` and `/v1/audio/speech`, plus `/v1/rerank` (alias `/rerank`) and `/health`.
+A single FastAPI app exposes OpenAI-compatible `/v1/embeddings`, `/v1/audio/transcriptions` and `/v1/audio/speech`, plus `/v1/rerank` (alias `/rerank`), `/v1/models` (OpenAI-style model list) and `/health`.
 
 **Model Loading:**
 All models are lazily loaded on the first request that needs them (nothing is preloaded at startup). `ModelManager` keeps four caches (`embed_cache`, `rerank_cache`, `asr_cache`, `tts_cache`) guarded by a single `threading.Lock`.
