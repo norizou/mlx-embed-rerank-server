@@ -1,0 +1,106 @@
+{
+  "load_sec": 1.1,
+  "jsts": {
+    "n_pairs": 1457,
+    "spearman": 85.81
+  },
+  "peak_mem_gb": 2.66,
+  "jagovfaqs_22k": {
+    "n_queries": 300,
+    "n_docs": 10000,
+    "encode_sec": 64.7,
+    "dim768": {
+      "ndcg_10": 75.63,
+      "mrr_10": 72.1,
+      "recall_10": 86.67,
+      "recall_100": 95.33
+    },
+    "dim512": {
+      "ndcg_10": 74.56,
+      "mrr_10": 70.89,
+      "recall_10": 86.0,
+      "recall_100": 94.67
+    },
+    "dim256": {
+      "ndcg_10": 73.13,
+      "mrr_10": 69.46,
+      "recall_10": 84.33,
+      "recall_100": 94.0
+    },
+    "dim128": {
+      "ndcg_10": 69.88,
+      "mrr_10": 66.12,
+      "recall_10": 81.67,
+      "recall_100": 91.67
+    }
+  },
+  "jaqket": {
+    "n_queries": 300,
+    "n_docs": 10000,
+    "encode_sec": 217.3,
+    "dim768": {
+      "ndcg_10": 80.24,
+      "mrr_10": 77.11,
+      "recall_10": 89.67,
+      "recall_100": 96.0
+    },
+    "dim512": {
+      "ndcg_10": 79.87,
+      "mrr_10": 76.41,
+      "recall_10": 90.33,
+      "recall_100": 96.33
+    },
+    "dim256": {
+      "ndcg_10": 78.09,
+      "mrr_10": 74.57,
+      "recall_10": 89.0,
+      "recall_100": 96.0
+    },
+    "dim128": {
+      "ndcg_10": 70.96,
+      "mrr_10": 67.17,
+      "recall_10": 83.0,
+      "recall_100": 92.33
+    }
+  },
+  "miracl-retrieval": {
+    "n_queries": 300,
+    "n_docs": 10000,
+    "encode_sec": 56.5,
+    "dim768": {
+      "ndcg_10": 99.04,
+      "mrr_10": 99.04,
+      "recall_10": 99.61,
+      "recall_100": 99.78
+    },
+    "dim512": {
+      "ndcg_10": 99.06,
+      "mrr_10": 99.21,
+      "recall_10": 99.61,
+      "recall_100": 99.78
+    },
+    "dim256": {
+      "ndcg_10": 98.69,
+      "mrr_10": 98.72,
+      "recall_10": 99.72,
+      "recall_100": 99.89
+    },
+    "dim128": {
+      "ndcg_10": 97.29,
+      "mrr_10": 97.67,
+      "recall_10": 98.91,
+      "recall_100": 99.64
+    }
+  },
+  "speed": {
+    "cold": {
+      "sec": 5.36,
+      "ms_per_doc": 5.362
+    },
+    "warm": {
+      "sec": 4.71,
+      "ms_per_doc": 4.711
+    },
+    "avg_chars": 172
+  }
+}

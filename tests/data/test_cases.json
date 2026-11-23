@@ -10,12 +10,10 @@
       "embeddinggemma-2",
       "bge-m3",
       "bge-m3-8bit",
-      "qwen3-vl-embedding-2b",
       "qwen3-0.6b-embed"
     ],
     "expected_rerank_models": [
-      "qwen3-0.6b",
-      "qwen3-vl-reranker-2b"
+      "qwen3-0.6b"
     ],
     "expected_audio_models": [
       "qwen3-asr-0.6b-8bit",
@@ -139,14 +137,14 @@
   "rerank_default_model": "qwen3-0.6b",
   "audio": {
     "stt": {
-      "model": "qwen3-asr-0.6b-8bit",
+      "model": "qwen3-asr-1.7b-8bit",
       "language": "ja",
       "sample_rate": 16000,
       "duration_sec": 1.0,
       "frequency": 440
     },
     "tts": {
-      "model": "qwen3-tts-0.6b-base-8bit",
+      "model": "qwen3-tts-1.7b-base-8bit",
       "input": "これはテストです。",
       "response_format": "wav",
       "expected_content_type": "audio/wav"
@@ -179,11 +177,11 @@
       "embeddings_bad_dimensions": 400
     },
     "wrong_type": {
-      "tts_model_for_stt": "qwen3-tts-0.6b-base-8bit",
-      "asr_model_for_tts": "qwen3-asr-0.6b-8bit"
+      "tts_model_for_stt": "qwen3-tts-1.7b-base-8bit",
+      "asr_model_for_tts": "qwen3-asr-1.7b-8bit"
     },
     "wrong_engine": {
-      "qwen3_model": "qwen3-tts-0.6b-base-8bit",
+      "qwen3_model": "qwen3-tts-1.7b-base-8bit",
       "irodori_model": "irodori-tts-v4.1-small-8bit"
     }
   },

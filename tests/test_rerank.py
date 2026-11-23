@@ -8,7 +8,7 @@ from conftest import requires_vl, rerank
 
 RERANK_MODELS = [
     "qwen3-0.6b",
-    pytest.param("qwen3-vl-reranker-2b", marks=[pytest.mark.vl, requires_vl]),
+    # pytest.param("qwen3-vl-reranker-2b", marks=[pytest.mark.vl, requires_vl]),
 ]
 
 

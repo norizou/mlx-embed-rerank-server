@@ -2,6 +2,11 @@ import math
 import time
 import io
 import os
+
+# Disable Hugging Face tqdm progress bars to prevent BrokenPipeError in background/daemon execution
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import uuid
 import datetime
 import _strptime
@@ -91,11 +96,12 @@ AVAILABLE_EMBED_MODELS = {
         "type": "standard",
         "description": "BGE-M3 8-bit (Multilingual, Quantized)"
     },
-    "qwen3-vl-embedding-2b": {
-        "id": "mlx-community/Qwen3-VL-Embedding-2B-mxfp8",
-        "type": "qwen3_vl_embed",
-        "description": "Qwen3-VL Embedding 2B (Multimodal, mlx-embeddings)"
-    },
+    # HFキャッシュ未保有 (かつ torch/torchvision が必要) のため無効化中:
+    # "qwen3-vl-embedding-2b": {
+    #     "id": "mlx-community/Qwen3-VL-Embedding-2B-mxfp8",
+    #     "type": "qwen3_vl_embed",
+    #     "description": "Qwen3-VL Embedding 2B (Multimodal, mlx-embeddings)"
+    # },
     "qwen3-0.6b-embed": {
         "id": "mlx-community/Qwen3-Embedding-0.6B-mxfp8",
         "type": "qwen3_embed",
@@ -118,11 +124,12 @@ AVAILABLE_RERANK_MODELS = {
         "type": "qwen3",
         "description": "Qwen3 Reranker 0.6B (Generative, Yes/No scoring)"
     },
-    "qwen3-vl-reranker-2b": {
-        "id": "mlx-community/Qwen3-VL-Reranker-2B-mxfp8",
-        "type": "qwen3_vl_rerank",
-        "description": "Qwen3-VL Reranker 2B (Multimodal, mlx-embeddings)"
-    }
+    # HFキャッシュ未保有 (かつ torch/torchvision が必要) のため無効化中:
+    # "qwen3-vl-reranker-2b": {
+    #     "id": "mlx-community/Qwen3-VL-Reranker-2B-mxfp8",
+    #     "type": "qwen3_vl_rerank",
+    #     "description": "Qwen3-VL Reranker 2B (Multimodal, mlx-embeddings)"
+    # }
 }
 
 AVAILABLE_AUDIO_MODELS = {

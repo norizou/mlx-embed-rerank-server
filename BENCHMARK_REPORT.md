@@ -1,6 +1,7 @@
 ---
 title: mlx-embed-rerank-server 統合ベンチマーク・レポート
 date: 2026-06-25
+updated: 2026-11-24
 author: norihito
 tags:
   - benchmark
@@ -18,7 +19,9 @@ categories:
 summary: |
   mlx-embed-rerank-server の統合ベンチマーク。Embedding 4モデル、Reranker 2モデル、
   STT/ASR 5モデル（うち2モデルを10回反復ベンチマーク）、TTS 3モデル（10回反復ベンチマーク）の精度と速度を比較。
-  デフォルト構成: bge-m3 (Embedding) + qwen3-0.6b (Reranker) + qwen3-asr-1.7b-8bit (ASR) + qwen3-tts-0.6b-base-8bit (TTS)。
+  デフォルト構成: embeddinggemma-2 (Embedding) + qwen3-0.6b (Reranker) + qwen3-asr-1.7b-8bit (ASR) + irodori-tts-v4.1-small-8bit (TTS)。
+  2026-11-24: §2/§4 の Embedding 精度の結論は、サーバーのプーリング実装の誤り（全モデル CLS）による誤りと判明。
+  JMTEB サブセットと COCO 1k による再評価を §9 に追加し、既定 Embedding を bge-m3 から embeddinggemma-2 に変更。
 test_environment:
   machine: Apple Silicon (macOS Darwin 25.5.0)
   memory: 64GB
@@ -29,6 +32,7 @@ sections:
   - id: "2"
     title: Embedding パフォーマンス比較
     models: [gemma-3-300m, bge-m3, qwen3-0.6b-embed, qwen3-vl-embedding-2b]
+    note: 精度の結論は §9 で訂正（プーリング実装の誤り）
   - id: "3"
     title: Reranking パフォーマンス比較
     models: [qwen3-0.6b, qwen3-vl-reranker-2b]
@@ -44,11 +48,16 @@ sections:
     benchmark_runs: 10
     test_method: voice_cloning (ICL)
     ref_audio: 波平.m4a 3-18s clip (15s, m4a/AAC, 48kHz mono)
+  - id: "9"
+    title: Embedding 再評価（JMTEB サブセット + COCO 1k 画像）
+    models: [bge-m3, embeddinggemma-2, embeddinggemma-300m, qwen3-0.6b-embed]
+    datasets: [JaGovFAQs-22k, JAQKET, MIRACL-ja, JSTS, COCO-1k (STAIR Captions / COCO captions)]
+    script: scripts/eval_embed/
 defaults:
-  embedding: bge-m3
+  embedding: embeddinggemma-2  # 2026-11-24 bge-m3 から変更 → §9
   reranker: qwen3-0.6b
   asr: qwen3-asr-1.7b-8bit
-  tts: qwen3-tts-0.6b-base-8bit
+  tts: irodori-tts-v4.1-small-8bit
 removed_models:
   - Qwen3-ASR-0.6B-bf16 (1.5GB)  # 8bit と出力完全一致
   - Qwen3-ASR-0.6B-4bit (681MB)  # 8bit に対し明確な精度劣化
@@ -59,6 +68,11 @@ removed_models:
 
 * **Embedding / Reranking**: ランダム生成されたダミーデータ1000件と実際のベクトルデータベース（ChromaDB）を組み合わせた RAGパイプライン全体の負荷・精度テスト（第2〜4章）
 * **STT/ASR**: Qwen3-ASR シリーズ5モデルの量子化バリエーション比較と、代表的2モデルによる10回反復ベンチマーク（第5章）
+* **Embedding 再評価**: 公開データセット（JMTEB サブセット）による日本語テキスト検索と、COCO 1k による画像埋め込みの評価（第9章）
+
+> ⚠️ **訂正（2026-11-24）**: 第2章・第4章の Embedding 精度に関する結論は誤りでした。当時のサーバーは
+> 全モデルで先頭トークン（CLS）の出力をベクトルとして使っており、mean プーリングの EmbeddingGemma と
+> last-token プーリングの Qwen3-Embedding を正しく処理できていませんでした。正しい処理での再評価は **第9章** を参照してください。
 
 ## 1. テスト環境・条件
 
@@ -97,6 +111,12 @@ removed_models:
 
 1000件の日本語テキストを一括でAPI (`/v1/embeddings`) に送信し、全データのベクトル化が完了するまでの時間を計測しました。
 
+> ⚠️ **訂正（2026-11-24）**: この表の速度は当時のサーバー経由の計測値として残しますが、
+> `gemma-3-300m` と `qwen3-0.6b-embed` のベクトルは**誤った方式で作られていました**（→ §4 の訂正、§9.4）。
+> プーリング方式は速度にほとんど影響しないため、速度の比較自体はおおむね有効です。
+> §9 の再計測（ウォーム時、1000件、平均172字）では、bge-m3 が 11.0 ms/件、embeddinggemma-300m が 4.0 ms/件、
+> embeddinggemma-2 が 4.7 ms/件でした（測定条件が異なるため、この表とは直接比べないでください）。
+
 | モデル名 | パラメータ数 | 初回実行 (コンパイル込) | 2回目以降 (キャッシュ) | 1件あたりの平均 (2回目) |
 | :--- | :--- | :--- | :--- | :--- |
 | **gemma-3-300m** | 3億 | 9.70 秒 | **2.93 秒** | 約 2.9 ms |
@@ -127,6 +147,19 @@ ChromaDBのベクトル検索（Cosine Similarity）で絞り込んだ **上位1
 ---
 
 ## 4. RAGパイプライン全体の検証 (Recall & Precision)
+
+> ⚠️ **訂正（2026-11-24）: この章の Embedding に関する結論は誤りです。**
+>
+> * **原因はモデルではなくサーバーの実装でした。** 当時の `compute_embeddings` は、すべてのモデルで
+>   `last_hidden_state[:, 0, :]`（先頭トークン）をベクトルとして使っていました。これは bge-m3（CLS プーリング）には正しい処理ですが、
+>   * `gemma-3-300m`（EmbeddingGemma）は本来 **mean プーリング → dense 2層 → L2 正規化** で、先頭トークンは `<bos>` の中間表現にすぎません。
+>   * `qwen3-0.6b-embed`（Qwen3-Embedding）は本来 **last-token プーリング**（末尾の `<|endoftext|>`）で、クエリ用の指示文も必要です。
+> * 同じ重み・同じデータで比べると、embeddinggemma-300m の JaGovFAQs nDCG@10 は 正しい処理で **80.48**、当時の処理で **3.29**、
+>   Qwen3-Embedding の JSTS は正しい処理で **81.16**、当時の処理で **13.44** でした（§9.4）。下記 1. の「検索漏れ」はこの不具合の症状です。
+> * **評価方法にも弱点がありました。** 意味を持たない Faker の乱文1000件に正解1件を混ぜる方式では、
+>   正しく動くモデルならほぼ必ず当たるため、モデル間の差を測れません。外れたこと自体が実装の異常を示す兆候でした。
+> * 正しい処理では、テキスト検索で **embeddinggemma-300m が bge-m3 を全タスクで上回りました**（§9.3）。
+>   下記の Reranker に関する記述（2.）は、この不具合の影響を受けていません。
 
 今回のテストでは、単なるスピードだけでなく、**ChromaDBとの連携を通じた検索精度**のテストも確認できました。
 
@@ -609,6 +642,139 @@ namihei の Irodori 3 件がすべて **30.00 秒ちょうど**なのは偶然�
 
 ---
 
+## 9. Embedding 再評価: embeddinggemma-2 と既存モデル（2026-11-24）
+
+Google の `embeddinggemma-2` の公開をきっかけに、既定の `bge-m3` と比較するために再評価しました。
+EG2 はテキスト・画像・音声・動画を同じ 768 次元の空間に埋め込めるため、**画像埋め込み**も評価しています。
+この過程で、§2/§4 の評価が**サーバーのプーリング実装の誤り**に影響されていたことが分かりました（§9.4）。
+
+### 9.1 テスト条件
+
+* **計測スクリプト**: `scripts/eval_embed/`（専用の uv 環境。`encoders.py` / `eval_text.py` / `eval_image.py`、結果は `results/*.json`）
+* **実行方法**: サーバーを経由せず、各ライブラリでモデルを直接呼び出し（サーバーの依存を変えずに新しい mlx-vlm を使うため）
+* **環境**: Apple Silicon (macOS 27.2.1)、`mlx` 0.32.4、`mlx-vlm` 0.7.4（rev `3d87e88`）、`mlx-embeddings` 0.1.0、`mlx-lm` 0.32.2、`transformers` 5.24.0
+* **入力長**: 最大 512 トークンで切り詰め（全モデル共通）
+
+**比較モデル**
+
+| モデル | 重み | 精度 | プーリング | プロンプト |
+| :--- | :--- | :--- | :--- | :--- |
+| `bge-m3` | `mlx-community/bge-m3-mlx-fp16` | fp16 | CLS | なし |
+| `embeddinggemma-2` | `mlx-community/embeddinggemma-2-bf16` | bf16 | mean → L2（モデルの `text_embeds`） | query: `task: search result \| query: ` / doc: `title: none \| text: ` / STS: `task: sentence similarity \| query: ` |
+| `embeddinggemma-300m` | `mlx-community/embeddinggemma-300m-bf16`（中身は F16） | fp16 | mean → dense 2層 → L2（`text_embeds`） | EG2 と同じ |
+| `qwen3-0.6b-embed` | `mlx-community/Qwen3-Embedding-0.6B-mxfp8` | **mxfp8** | last token → L2（`text_embeds`） | query: `Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:` / doc: なし |
+
+`embeddinggemma-300m` と `qwen3-0.6b-embed` は、旧サーバーの `gemma-3-300m` / `qwen3-0.6b-embed` と同じリポジトリです。
+`qwen3-0.6b-embed` だけは 8bit 量子化（mxfp8）で、他の3モデル（16bit）より不利な条件です。
+
+**テキスト評価データ**（JMTEB: `sbintuitions/JMTEB`）
+
+| タスク | 内容 | 規模 |
+| :--- | :--- | :--- |
+| JaGovFAQs-22k | 行政 FAQ の質問 → 回答 | クエリ 300 / コーパス 10,000 |
+| JAQKET | クイズ → Wikipedia 記事（平均約 4,000 字） | クエリ 300 / コーパス 10,000 |
+| MIRACL-ja | 質問 → Wikipedia パッセージ | クエリ 300 / コーパス 10,000 |
+| JSTS | 文ペアの類似度（Spearman 相関） | 1,457 ペア |
+
+検索タスクは、テストクエリから 300 件を抽出し（seed=42）、その正解文書すべてに、ランダムな負例を足して 10,000 件のコーパスを作りました。
+公式の JMTEB より簡単な設定なので、**絶対値はリーダーボードと比べられません。モデル間の差を見るための値です。**
+
+**画像評価データ**: COCO Karpathy test の先頭 1,000 枚（997 枚を使用、3 枚は取得失敗）。
+日本語キャプションは STAIR Captions v1.2、英語キャプションは COCO を使い、どちらも各画像 5 本です。
+
+### 9.2 指標
+
+* **nDCG@10**: 上位 10 件の順位の良さ（主指標）
+* **Recall@k**: 正解のうち上位 k 件に入った割合
+* **速度**: JaGovFAQs の文書 1,000 件（平均 172 字）を一括処理したときのウォーム時の時間
+* **画像**: テキスト→画像（t2i）はキャプション 1 本で正解画像を探す R@k、画像→テキスト（i2t）は画像で自分のキャプション 5 本のいずれかを探す R@k
+
+### 9.3 テキスト検索の結果
+
+| モデル | JaGovFAQs | JAQKET | MIRACL-ja | JSTS | 速度 (ms/件) | 次元 | ピークメモリ |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **embeddinggemma-300m** | **80.48** | **83.00** | **99.22** | 84.93 | **4.0** | 768 | 1.7 GB |
+| embeddinggemma-2 | 75.63 | 80.24 | 99.04 | **85.81** | 4.7 | 768 | 2.7 GB |
+| bge-m3 | 78.85 | 78.68 | 98.99 | 80.23 | 11.0 | 1024 | 3.0 GB |
+| qwen3-0.6b-embed (mxfp8) | 74.60 | 68.74 | 98.30 | 81.16 | 21.3 | 1024 | 2.7 GB |
+
+※ 検索タスクは nDCG@10、JSTS は Spearman 相関 ×100。
+
+**Recall@10 / Recall@100**
+
+| モデル | JaGovFAQs | JAQKET | MIRACL-ja |
+| :--- | :--- | :--- | :--- |
+| embeddinggemma-300m | 89.67 / 96.33 | 92.00 / 96.67 | 99.83 / 100.0 |
+| embeddinggemma-2 | 86.67 / 95.33 | 89.67 / 96.00 | 99.61 / 99.78 |
+| bge-m3 | 89.67 / 96.67 | 88.00 / 95.33 | 99.83 / 100.0 |
+| qwen3-0.6b-embed | 86.00 / 93.67 | 82.67 / 94.00 | 99.33 / 100.0 |
+
+**embeddinggemma-2 の次元削減（Matryoshka）**: 先頭 d 次元に切り詰めて再正規化したときの nDCG@10
+
+| 次元 | JaGovFAQs | JAQKET | MIRACL-ja |
+| :--- | :--- | :--- | :--- |
+| 768 | 75.63 | 80.24 | 99.04 |
+| 512 | 74.56 | 79.87 | 99.06 |
+| 256 | 73.13 | 78.09 | 98.69 |
+| 128 | 69.88 | 70.96 | 97.29 |
+
+512 次元ではほぼ劣化せず、256 次元で 1〜2 ポイント、128 次元で大きく下がります。
+
+### 9.4 プーリング実装の誤りの影響
+
+同じ重み・同じデータで、正しい処理と旧サーバーの処理（`last_hidden_state[:, 0, :]`、Qwen3 は指示文なし）を比べました。
+
+| モデル | 処理 | JaGovFAQs | JAQKET | MIRACL-ja | JSTS |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| embeddinggemma-300m | 正しい処理（mean → dense） | 80.48 | 83.00 | 99.22 | 84.93 |
+| embeddinggemma-300m | 旧サーバー（CLS） | **3.29** | **5.78** | **18.03** | 62.50 |
+| qwen3-0.6b-embed | 正しい処理（last token＋指示文） | 74.60 | 68.74 | 98.30 | 81.16 |
+| qwen3-0.6b-embed | 旧サーバー（CLS・指示文なし） | — | — | — | **13.44** |
+
+旧サーバーの処理では、どちらも検索としてほぼ機能していませんでした。mlx-embeddings / mlx-vlm は正しくプーリングした結果を
+`text_embeds` として返しているので、サーバーはモデルごとにこれを使う必要があります。
+§4 で `gemma-3-300m` と `qwen3-0.6b-embed` が「検索漏れする」とされたのは、この不具合が原因でした。
+
+### 9.5 画像埋め込みの結果（embeddinggemma-2、COCO 1k）
+
+| キャプション | t2i R@1 | t2i R@5 | t2i R@10 | i2t R@1 | i2t R@5 | i2t R@10 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **日本語**（クエリ用プロンプトあり） | **72.24** | 92.88 | 97.05 | **84.25** | 98.29 | 99.50 |
+| 日本語（プロンプトなし） | 72.20 | 92.60 | 96.85 | 83.35 | 97.19 | 99.10 |
+| 英語（クエリ用プロンプトあり） | 75.97 | 94.08 | 97.47 | 88.87 | 98.70 | 100.0 |
+| 英語（プロンプトなし） | 76.57 | 94.28 | 97.35 | 89.57 | 98.70 | 99.90 |
+
+* **画像の入力**: chat template で `<|image|>` を 1 つ置いたプロンプトを使い、1 枚ずつ処理しました。processor はテキストと同じく
+  `<bos>` と `<eos>` を自動で付けます（`add_special_tokens` の指定に関係なく付くため、BOS の有無による差はありません）。
+* **安定性**: 画像を中央 80% で切り取り 60% に縮小したものと元画像との cosine は平均 **0.974**、他の画像とは 0.606 で、
+  50 枚すべてで元画像が 1 位でした。
+* **速度・メモリ**: 画像 1 枚あたり **137 ms**、ピークメモリ 2.4 GB。
+* **cosine の水準**: 正しい組のキャプションと画像は平均 0.71、無関係な組でも 0.54 あります。順位付けには十分な差ですが、
+  固定のしきい値で絞り込む使い方には向きません。上位 k 件を取る使い方を前提にしてください。
+
+### 9.6 考察と既定モデルの選定
+
+* **テキスト検索だけなら embeddinggemma-300m が最良です。** 検索 3 タスクすべてで 1 位、速度も最速（bge-m3 の約 2.7 倍）、メモリも最小でした。
+* **embeddinggemma-2 は、テキスト検索では 300m に 1〜5 ポイント届きません**が、JSTS は最高でした。
+  また、日本語の画像検索で t2i R@5 が 93% と、テキストと画像を同じ空間で扱える点が強みです。
+* **bge-m3 は、正しく処理した gemma 系に精度・速度の両方で負けました。** §2/§4 で bge-m3 を既定にした根拠は、プーリング不具合で崩れています。
+* **qwen3-0.6b-embed は、正しく処理しても精度が最下位で、速度も最も遅い**結果でした（mxfp8 量子化の影響を含みます）。
+* **既定は `embeddinggemma-2` にします。** テキスト検索の精度は 300m に少し譲りますが、1 つのモデルでテキストと画像を同じ空間に入れられ、
+  bge-m3 と比べても精度はほぼ同等で速度は約 2.3 倍です。テキスト検索の精度を最優先する用途では `embeddinggemma-300m` を明示指定してください。
+* **既定を変えると、既存のベクトル DB は作り直しが必要です。** bge-m3（1024 次元）で作ったインデックスとは次元も空間も違うため、
+  そのまま混ぜて検索することはできません。
+
+### 9.7 この評価の限界
+
+* **コーパスを 1 万件に間引いている**ため、公式 JMTEB より簡単です。特に MIRACL-ja は全モデルが 98 点以上で、差が出ていません。
+* **入力を 512 トークンで切り詰めています。** JAQKET の記事（平均約 4,000 字）は冒頭しか使っていません。
+* **qwen3-0.6b-embed だけ 8bit 量子化**で、他は 16bit です。qwen3 の 16bit 版は測っていません。
+* **速度は各 1 回の計測**です。qwen3-0.6b-embed の精度評価は画像評価と並行して実行しましたが、表の速度は単独で測り直した値です。
+* **画像は COCO の自然画像だけ**で、スクリーンショット・スライド・PDF のページのような文字の多い画像は評価していません。
+* **Reranker と組み合わせた RAG 全体の評価はしていません。**
+
+---
+
 ## 🎯 総合結論とおすすめモデル
 `mlx-embed-rerank-server` は以下の点で、ローカルRAGシステムおよび音声認識・音声合成基盤として極めて実用的な完成度を誇っています。
 
@@ -618,7 +784,7 @@ namihei の Irodori 3 件がすべて **30.00 秒ちょうど**なのは偶然�
 
 **【最終設定・デフォルトのモデル選定（黄金バランス）】**
 一連のテスト結果を受け、`mlx-embed-rerank-server` サーバーのデフォルト設定は以下の組み合わせに最適化（固定）されました。
-* 🔍 **Embedding (デフォルト)**: **`bge-m3`** (高速かつ、日本語の検索漏れがない確確な精度)
+* 🔍 **Embedding (デフォルト)**: **`embeddinggemma-2`**（2026-11-24 に `bge-m3` から変更 → §9）。テキストと画像を同じ 768 次元の空間に埋め込め、bge-m3 とほぼ同等の精度で約 2.3 倍速い。テキスト検索の精度を最優先する場合は `embeddinggemma-300m` を明示指定（JMTEB サブセットの検索 3 タスクで最良）。既定の変更に伴い、bge-m3 で作った既存のベクトル DB は再埋め込みが必要
 * 🎯 **Reranker (デフォルト)**: **`qwen3-0.6b`** (超高速でユーザーを待たせず、確実な順位付けが可能)
 * 🎙️ **STT/ASR (デフォルト)**: **`qwen3-asr-1.7b-8bit`** (0.6B-8bit比で精度大幅向上、速度ペナルティはわずか+0.25s、3.4GB・64GBマシンで余裕)
 * 🔊 **TTS (デフォルト)**: **`irodori-tts-v4.1-small-8bit`**（2026-09-06 に変更。§7/§8 の計測と試聴の結果、出力長 std=0.000 と声の再現度で Qwen3 を上回った）。Irodori は既定話者を持たないため `ref_audio` か `instruct` が必須。多言語・OpenAI 互換の `voice` プリセットが必要な場合は `qwen3-tts-0.6b-base-8bit` を明示指定 → §7

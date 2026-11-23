@@ -12,7 +12,7 @@ RUN_CMD="uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port $PORT"
 
 # --- Monitoring Configuration ---
 CHECK_INTERVAL=30    # 監視間隔 (秒)
-MAX_FAILS=2          # 連続失敗の許容回数 (30秒 × 2回 = 約60秒ハングで判定)
+MAX_FAILS=10         # 連続失敗の許容回数 (30秒 × 10回 = 約300秒ハングで判定)
 CURL_TIMEOUT=10      # healthチェック自体のタイムアウト時間 (秒)
 
 function stop_server() {
@@ -53,7 +53,7 @@ function monitor_loop() {
                 stop_server
                 echo "Restarting MLX Server..."
                 export UV_PYTHON=3.13
-                $RUN_CMD &
+                $RUN_CMD >> "$SCRIPT_DIR/server.log" 2>&1 &
                 fail_count=0
                 
                 # 起動待ちのため少し待機
@@ -74,7 +74,7 @@ function start_server() {
         # launchd や Ctrl+C で終了された時にバックグラウンドのサーバーも道連れにする
         trap 'echo "Shutting down supervisor..."; stop_server; exit 0' SIGINT SIGTERM
         
-        $RUN_CMD &
+        $RUN_CMD >> "$SCRIPT_DIR/server.log" 2>&1 &
         
         # モニターをフォアグラウンドループで動かし、スクリプトをスーパーバイザーとして常駐させる
         monitor_loop

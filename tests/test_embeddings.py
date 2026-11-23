@@ -10,7 +10,8 @@ EMBED_MODELS = [
     "bge-m3",
     "bge-m3-8bit",
     "qwen3-0.6b-embed",
-    pytest.param("qwen3-vl-embedding-2b", marks=[pytest.mark.vl, requires_vl]),
+    # qwen3-vl-embedding-2b is disabled in AVAILABLE_EMBED_MODELS (not cached, needs torch):
+    # pytest.param("qwen3-vl-embedding-2b", marks=[pytest.mark.vl, requires_vl]),
 ]
 
 
