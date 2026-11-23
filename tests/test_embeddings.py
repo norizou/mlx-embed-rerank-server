@@ -7,12 +7,14 @@ from conftest import embed, l2_norm, requires_vl
 EMBED_MODELS = [
     "gemma-3-300m",
     "embeddinggemma-2",
-    "bge-m3",
-    "bge-m3-8bit",
     "qwen3-0.6b-embed",
+    # bge-m3 / bge-m3-8bit are disabled in AVAILABLE_EMBED_MODELS (cache removed 2026-11-24).
     # qwen3-vl-embedding-2b is disabled in AVAILABLE_EMBED_MODELS (not cached, needs torch):
     # pytest.param("qwen3-vl-embedding-2b", marks=[pytest.mark.vl, requires_vl]),
 ]
+
+
+STANDARD_MODELS: list[str] = []  # e.g. ["bge-m3", "bge-m3-8bit"] when re-enabled
 
 
 class TestEmbeddingModels:
@@ -82,7 +84,8 @@ class TestInputTypeHandling:
         custom = embed(client, "qwen3-0.6b-embed", [text], "query", instruction="Retrieve semantically similar text.")
         assert default["data"][0]["embedding"] != custom["data"][0]["embedding"]
 
-    @pytest.mark.parametrize("model_name", ["bge-m3", "bge-m3-8bit"])
+    # `standard` (CLS) models; empty while bge-m3 / bge-m3-8bit are disabled, so this test is skipped.
+    @pytest.mark.parametrize("model_name", STANDARD_MODELS)
     def test_standard_models_ignore_input_type(self, client, test_cases, model_name):
         assert test_cases["embedding"][model_name]["prefix_sensitive"] is False
         text = "input_type は標準モデルでは無視される"
@@ -90,7 +93,7 @@ class TestInputTypeHandling:
         as_document = embed(client, model_name, [text], "document")
         assert as_query["data"][0]["embedding"] == as_document["data"][0]["embedding"]
 
-    @pytest.mark.parametrize("model_name", ["bge-m3", "gemma-3-300m", "embeddinggemma-2"])
+    @pytest.mark.parametrize("model_name", ["gemma-3-300m", "embeddinggemma-2"])
     def test_instruction_is_ignored_by_prompt_models(self, client, model_name):
         """`instruction` is honored only by qwen3-0.6b-embed (queries) and qwen3-vl-embedding-2b."""
         text = "instruction は VL 以外では無視される"
@@ -135,7 +138,7 @@ class TestRetrievalSanity:
     """
 
     @pytest.mark.parametrize(
-        "model_name", ["gemma-3-300m", "embeddinggemma-2", "bge-m3", "bge-m3-8bit", "qwen3-0.6b-embed"]
+        "model_name", ["gemma-3-300m", "embeddinggemma-2", "qwen3-0.6b-embed"]
     )
     def test_each_query_ranks_its_answer_first(self, client, test_cases, model_name):
         case = test_cases["embedding_retrieval"]

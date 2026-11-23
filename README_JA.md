@@ -69,7 +69,7 @@ http://localhost:1235
   "status": "ok",
   "loaded_embed_models": [], "loaded_rerank_models": [],
   "loaded_asr_models": [], "loaded_tts_models": [],
-  "available_embed": ["gemma-3-300m", "embeddinggemma-2", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
+  "available_embed": ["gemma-3-300m", "embeddinggemma-2", "qwen3-0.6b-embed"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
   "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
                       "irodori-tts-v4.1-small-8bit"]
@@ -84,7 +84,6 @@ http://localhost:1235
 {
   "object": "list",
   "data": [
-    {"id": "bge-m3", "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": "embedding"},
     {"id": "qwen3-0.6b", "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": "rerank"}
   ]
 }
@@ -104,7 +103,7 @@ http://localhost:1235
 
 | モデル | プーリング | 前処理 |
 |:---|:---|:---|
-| `bge-m3` / `bge-m3-8bit` | 先頭トークン（CLS） | なし（`input_type` は無視） |
+| `bge-m3` / `bge-m3-8bit`（現在は無効化中） | 先頭トークン（CLS） | なし（`input_type` は無視） |
 | `gemma-3-300m` | mean pooling → dense 2 層 | query: `task: search result \| query: ` / document: `title: none \| text: ` |
 | `embeddinggemma-2` | mean pooling | `gemma-3-300m` と同じタスクプロンプト（画像にはプロンプトなし） |
 | `qwen3-0.6b-embed` | 末尾トークン（`<\|endoftext\|>`） | query のみ `Instruct: {instruction}\nQuery:`（既定は web 検索用の指示文）、document はなし |
@@ -243,8 +242,8 @@ sequenceDiagram
 | :--- | :--- | :--- |
 | `embeddinggemma-2` | `embeddinggemma-2-bf16` | **デフォルト**。768 次元。テキストと画像を同じ空間に埋め込む。`input_type` でプロンプト自動付与。Matryoshka 対応。`mlx-vlm` でロード |
 | `gemma-3-300m` | `embeddinggemma-300m-bf16` | EmbeddingGemma 300M。768 次元。**テキスト検索の精度は最良かつ最速**。Matryoshka 対応 |
-| `bge-m3` | `bge-m3-mlx-fp16` | 1024 次元。多言語で堅牢。旧デフォルト（既存インデックス用に残置） |
-| `bge-m3-8bit` | `bge-m3-mlx-8bit` | BGE-M3 の 8bit 量子化版。省メモリ |
+| ~~`bge-m3`~~ | `bge-m3-mlx-fp16` | **2026-11-24 に無効化**（HF キャッシュを削除）。1024 次元。旧デフォルト |
+| ~~`bge-m3-8bit`~~ | `bge-m3-mlx-8bit` | **2026-11-24 に無効化**（HF キャッシュを削除）。BGE-M3 の 8bit 量子化版 |
 | `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 Embedding（テキスト専用、1024 次元）。クエリに指示文を付与。Matryoshka 対応 |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | 2B マルチモーダル。`instruction` 対応。最高精度・最重量 |
 
@@ -292,7 +291,7 @@ JMTEB の日本語サブセット（各 300 クエリ、コーパス 1 万件）
 
 画像（`embeddinggemma-2`、COCO 1k・日本語キャプション）: テキスト→画像 R@1 72.2 / R@5 92.9、画像→テキスト R@1 84.3。
 
-**基本方針**: 画像を混ぜて検索するなら `embeddinggemma-2`（デフォルト）。テキストだけなら `gemma-3-300m` が最も精度が高く速い選択肢です。どちらも Top100 を `qwen3-0.6b` でリランク（100 件で約 2 秒）すると上位の精度が上がります。`bge-m3` は、bge-m3 で作った既存のインデックスを使い続ける場合に `model` を明示して使ってください（埋め込みモデルを変えたらインデックスは作り直しが必要です）。
+**基本方針**: 画像を混ぜて検索するなら `embeddinggemma-2`（デフォルト）。テキストだけなら `gemma-3-300m` が最も精度が高く速い選択肢です。どちらも Top100 を `qwen3-0.6b` でリランク（100 件で約 2 秒）すると上位の精度が上がります。`bge-m3` は登録から外したので、bge-m3 で作った既存のインデックスは作り直しが必要です（埋め込みモデルを変えるとベクトルの次元も空間も変わります）。
 
 ---
 
@@ -361,7 +360,7 @@ embed_reranker/
   uv pip install torch torchvision
   ```
 
-  それ以外のモデル（bge-m3 / gemma-3-300m / embeddinggemma-2（画像含む） / qwen3 embed・rerank / ASR / TTS）は torch なしで動作します。
+  それ以外のモデル（gemma-3-300m / embeddinggemma-2（画像含む） / qwen3 embed・rerank / ASR / TTS）は torch なしで動作します。
 
 ---
 
@@ -635,7 +634,7 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 
 ## 💡 RAG 構成例
 
-1. **Embed**: `/v1/embeddings`（`embeddinggemma-2`、既存の bge-m3 インデックスなら `bge-m3`）で文書をベクトル化
+1. **Embed**: `/v1/embeddings`（`embeddinggemma-2`）で文書をベクトル化
 2. **Retrieve**: ベクトル DB から上位 50〜100 件を取得
 3. **Rerank**: `/v1/rerank`（`qwen3-0.6b`）で上位 10〜20 件に絞り込み
 4. **Generate**: 絞り込んだ文書を LLM のコンテキストに渡す
@@ -665,7 +664,8 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 - **不具合修正**: `compute_embeddings` が全モデルで `last_hidden_state` の先頭トークン（CLS）を取っていた。BGE-M3 には正しいが、`gemma-3-300m`（本来は mean pooling → dense）と `qwen3-0.6b-embed`（本来は末尾トークン）では検索がほぼ機能していなかった（JMTEB サブセットの nDCG@10 が 3〜18、正しい方式では 69〜99）。モデル種別ごとに公式のプーリングを使うよう修正。**この 2 モデルで作った既存インデックスは作り直しが必要**
 - `qwen3-0.6b-embed` の種別を `qwen3_embed` に変更し、クエリに `Instruct: ...\nQuery:` を付与（`instruction` で上書き可）
 - `embeddinggemma-2` を追加（`mlx-vlm` @ `3d87e88` でロード、`torch` 不要）。`input` に画像オブジェクト（base64 の data URI）を混ぜられる
-- `DEFAULT_EMBED` を `bge-m3` から `embeddinggemma-2` に変更。`model` を省略していたクライアントは 1024 次元から 768 次元に変わるため、bge-m3 のインデックスを使い続ける場合は `model: "bge-m3"` を明示すること
+- `DEFAULT_EMBED` を `bge-m3` から `embeddinggemma-2` に変更。`model` を省略していたクライアントは 1024 次元から 768 次元に変わる
+- `bge-m3` / `bge-m3-8bit` を `AVAILABLE_EMBED_MODELS` から外した（HF キャッシュを削除）。JMTEB サブセットで gemma 系に精度・速度とも劣後したため。**bge-m3 で作った既存インデックスは作り直しが必要**
 - `dimensions`（Matryoshka）を追加
 - `/v1/embeddings` の未対応モデル名は `500` ではなく `400` を返すように変更（他のエンドポイントと統一）
 - 依存更新: `mlx-vlm` を追加。`mlx` 0.31.2 → 0.32.4、`mlx-audio` 0.5.1 → 0.6.7

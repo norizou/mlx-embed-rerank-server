@@ -86,16 +86,19 @@ AVAILABLE_EMBED_MODELS = {
         "supports_images": True,
         "description": "EmbeddingGemma 2 (Multilingual text + image, 768d, Prefixes required)"
     },
-    "bge-m3": {
-        "id": "mlx-community/bge-m3-mlx-fp16",
-        "type": "standard",
-        "description": "BGE-M3 (Multilingual, High precision)"
-    },
-    "bge-m3-8bit": {
-        "id": "mlx-community/bge-m3-mlx-8bit",
-        "type": "standard",
-        "description": "BGE-M3 8-bit (Multilingual, Quantized)"
-    },
+    # 2026-11-24 HFキャッシュを削除したため無効化中 (BENCHMARK_REPORT.md §9 で gemma 系に精度・速度とも劣後)。
+    # 戻す場合は tests/test_embeddings.py の EMBED_MODELS / STANDARD_MODELS と
+    # tests/data/test_cases.json の health.expected_embed_models も戻すこと:
+    # "bge-m3": {
+    #     "id": "mlx-community/bge-m3-mlx-fp16",
+    #     "type": "standard",
+    #     "description": "BGE-M3 (Multilingual, High precision)"
+    # },
+    # "bge-m3-8bit": {
+    #     "id": "mlx-community/bge-m3-mlx-8bit",
+    #     "type": "standard",
+    #     "description": "BGE-M3 8-bit (Multilingual, Quantized)"
+    # },
     # HFキャッシュ未保有 (かつ torch/torchvision が必要) のため無効化中:
     # "qwen3-vl-embedding-2b": {
     #     "id": "mlx-community/Qwen3-VL-Embedding-2B-mxfp8",
@@ -170,8 +173,8 @@ AVAILABLE_AUDIO_MODELS = {
 TTS_TYPES = {"tts", "tts_irodori"}
 
 # embeddinggemma-2: JMTEB サブセットで bge-m3 と同等の精度、約 2.3 倍速く、768 次元で画像も扱える
-# (BENCHMARK_REPORT.md)。bge-m3 (1024 次元) で作った既存インデックスを使うクライアントは
-# model="bge-m3" を明示すること。
+# (BENCHMARK_REPORT.md §9)。bge-m3 は 2026-11-24 に登録から外したため、bge-m3 (1024 次元) で
+# 作った既存インデックスは再埋め込みが必要。
 DEFAULT_EMBED = "embeddinggemma-2"
 DEFAULT_RERANK = "qwen3-0.6b"
 DEFAULT_ASR = "qwen3-asr-1.7b-8bit"

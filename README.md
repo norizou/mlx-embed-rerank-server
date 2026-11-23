@@ -64,7 +64,7 @@ A dedicated health-check server also listens on `http://localhost:1236` (see [Su
   "status": "ok",
   "loaded_embed_models": [], "loaded_rerank_models": [],
   "loaded_asr_models": [], "loaded_tts_models": [],
-  "available_embed": ["gemma-3-300m", "embeddinggemma-2", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
+  "available_embed": ["gemma-3-300m", "embeddinggemma-2", "qwen3-0.6b-embed"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
   "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
                       "irodori-tts-v4.1-small-8bit"]
@@ -79,7 +79,6 @@ Lists every model in `available_*` (loaded or not) in the OpenAI `list` shape. E
 {
   "object": "list",
   "data": [
-    {"id": "bge-m3", "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": "embedding"},
     {"id": "qwen3-0.6b", "object": "model", "created": 0, "owned_by": "mlx-embed-rerank", "type": "rerank"}
   ]
 }
@@ -99,7 +98,7 @@ Lists every model in `available_*` (loaded or not) in the OpenAI `list` shape. E
 
 | Model | Pooling | Prompting |
 |:---|:---|:---|
-| `bge-m3` / `bge-m3-8bit` | first token (CLS) | none (`input_type` ignored) |
+| `bge-m3` / `bge-m3-8bit` (currently disabled) | first token (CLS) | none (`input_type` ignored) |
 | `gemma-3-300m` | mean pooling → 2 dense layers | query `task: search result \| query: ` / document `title: none \| text: ` |
 | `embeddinggemma-2` | mean pooling | same prompts as `gemma-3-300m` (none for images) |
 | `qwen3-0.6b-embed` | last token (`<\|endoftext\|>`) | queries only: `Instruct: {instruction}\nQuery:` (web-search instruction by default) |
@@ -226,8 +225,8 @@ You can select a model by passing the `model` parameter in your API request. If 
 | :--- | :--- | :--- |
 | `embeddinggemma-2` | `embeddinggemma-2-bf16` | **Default.** 768-d, embeds text and images into one space, automatic prompts, Matryoshka. Loaded with `mlx-vlm`. |
 | `gemma-3-300m` | `embeddinggemma-300m-bf16` | EmbeddingGemma 300M, 768-d. **Best and fastest for text-only retrieval.** Matryoshka. |
-| `bge-m3` | `bge-m3-mlx-fp16` | 1024-d robust multilingual model. Former default, kept for existing indexes. |
-| `bge-m3-8bit` | `bge-m3-mlx-8bit` | BGE-M3 8-bit quantized, memory-efficient multilingual model. |
+| ~~`bge-m3`~~ | `bge-m3-mlx-fp16` | **Disabled on 2026-11-24** (HF cache removed). 1024-d, former default. |
+| ~~`bge-m3-8bit`~~ | `bge-m3-mlx-8bit` | **Disabled on 2026-11-24** (HF cache removed). BGE-M3 8-bit quantized. |
 | `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 embedding (text only, 1024-d), instruction on queries, Matryoshka. |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | 2B multimodal backbone, supports `instruction`; highest recall, slowest. |
 
@@ -273,7 +272,7 @@ Measured on Japanese JMTEB subsets (300 queries each, 10k-document corpora; [BEN
 
 Images (`embeddinggemma-2`, COCO 1k with Japanese captions): text→image R@1 72.2 / R@5 92.9, image→text R@1 84.3.
 
-**Rule of thumb**: use `embeddinggemma-2` (the default) when images are part of the corpus, `gemma-3-300m` for the best and fastest text-only retrieval, and rerank the top 100 with `qwen3-0.6b` (~2 s for 100 documents). Keep passing `model: "bge-m3"` for indexes built with it — changing the embedding model always means re-indexing.
+**Rule of thumb**: use `embeddinggemma-2` (the default) when images are part of the corpus, `gemma-3-300m` for the best and fastest text-only retrieval, and rerank the top 100 with `qwen3-0.6b` (~2 s for 100 documents). `bge-m3` is no longer registered, so indexes built with it must be re-embedded — changing the embedding model always means re-indexing.
 
 ---
 
@@ -339,7 +338,7 @@ embed_reranker/
   ```bash
   uv pip install torch torchvision
   ```
-  Every other model (bge-m3, gemma-3-300m, embeddinggemma-2 including images, qwen3 embed/rerank, ASR, TTS) runs without them.
+  Every other model (gemma-3-300m, embeddinggemma-2 including images, qwen3 embed/rerank, ASR, TTS) runs without them.
 
 ---
 
@@ -600,7 +599,7 @@ Notes:
 
 ## 💡 RAG Architecture Example
 
-1. **Embed**: Vectorize your documents using `/v1/embeddings` with `embeddinggemma-2` (or `bge-m3` for an existing bge-m3 index).
+1. **Embed**: Vectorize your documents using `/v1/embeddings` with `embeddinggemma-2`.
 2. **Retrieve**: Fetch the top 50–100 candidate documents from your vector database.
 3. **Rerank**: Use `/v1/rerank` with `qwen3-0.6b` to narrow them down to the top 10–20 highest-quality context documents.
 4. **Generate**: Pass the ranked documents as context to your LLM.

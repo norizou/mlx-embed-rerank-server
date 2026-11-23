@@ -8,8 +8,6 @@
     "expected_embed_models": [
       "gemma-3-300m",
       "embeddinggemma-2",
-      "bge-m3",
-      "bge-m3-8bit",
       "qwen3-0.6b-embed"
     ],
     "expected_rerank_models": [
@@ -202,11 +200,11 @@
   "embedding_matryoshka": {
     "model": "embeddinggemma-2",
     "dimensions": 256,
-    "non_matryoshka_model": "bge-m3"
+    "non_matryoshka_model": null
   },
   "embedding_images": {
     "model": "embeddinggemma-2",
     "expected_dim": 768,
-    "text_only_model": "bge-m3"
+    "text_only_model": "gemma-3-300m"
   }
 }

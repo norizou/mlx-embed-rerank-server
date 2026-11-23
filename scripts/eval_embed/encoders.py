@@ -19,9 +19,9 @@ from pathlib import Path
 import mlx.core as mx
 import numpy as np
 
-LMSTUDIO = Path.home() / ".lmstudio/models/mlx-community"
-EG2_PATH = str(LMSTUDIO / "embeddinggemma-2-bf16")
-EG300_PATH = str(Path(__file__).parent / "data/models/embeddinggemma-300m-bf16")  # = server's gemma-3-300m repo
+# All weights come from the Hugging Face cache (same repos as the 1235 server's registry).
+EG2_PATH = "mlx-community/embeddinggemma-2-bf16"
+EG300_PATH = "mlx-community/embeddinggemma-300m-bf16"  # = server's gemma-3-300m (tensors are F16)
 BGE_ID = "mlx-community/bge-m3-mlx-fp16"
 
 GEMMA_QUERY = "task: search result | query: "
@@ -161,7 +161,7 @@ class EmbeddingGemma300mServerCLS(EmbeddingGemma300m):
     server_cls = True
 
 
-QWEN3_PATH = str(Path(__file__).parent / "data/models/Qwen3-Embedding-0.6B-mxfp8")  # = server's qwen3-0.6b-embed
+QWEN3_PATH = "mlx-community/Qwen3-Embedding-0.6B-mxfp8"  # = server's qwen3-0.6b-embed
 QWEN3_QUERY = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
 QWEN3_STS = "Instruct: Retrieve semantically similar text.\nQuery:"
 

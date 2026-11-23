@@ -164,6 +164,8 @@ class TestEmbeddingInputErrors:
 
     def test_dimensions_on_non_matryoshka_model(self, client, test_cases):
         case = test_cases["embedding_matryoshka"]
+        if not case["non_matryoshka_model"]:
+            pytest.skip("every registered embedding model supports `dimensions`")
         resp = client.post("/v1/embeddings", json={"model": case["non_matryoshka_model"], "input": "x", "dimensions": 256})
         assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_bad_dimensions"]
 

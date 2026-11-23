@@ -8,7 +8,7 @@
 - **Web Framework:** FastAPI + Uvicorn (API on port `1235`), plus a `http.server` health probe on port `1236` in a daemon thread
 - **AI/ML Backend:** MLX (`mlx-embeddings`, `mlx-lm`, `mlx-audio`, `mlx-vlm` for EmbeddingGemma 2). No PyTorch path remains in the server.
 - **Models:**
-  - **Embedding (6):** `embeddinggemma-2-bf16` (default, text + image), `embeddinggemma-300m-bf16`, `bge-m3`, `bge-m3-8bit`, `Qwen3-Embedding-0.6B-mxfp8`, `Qwen3-VL-Embedding-2B-mxfp8`
+  - **Embedding (3 enabled):** `embeddinggemma-2-bf16` (default, text + image), `embeddinggemma-300m-bf16`, `Qwen3-Embedding-0.6B-mxfp8`. Disabled (commented out in `AVAILABLE_EMBED_MODELS`): `bge-m3`, `bge-m3-8bit` (HF cache removed 2026-11-24), `Qwen3-VL-Embedding-2B-mxfp8` (not cached, needs torch)
   - **Reranker (2):** `Qwen3-Reranker-0.6B-mxfp8` (default), `Qwen3-VL-Reranker-2B-mxfp8`
   - **ASR (2):** `Qwen3-ASR-1.7B-8bit` (default), `Qwen3-ASR-0.6B-8bit`
   - **TTS — Qwen3 (2):** `Qwen3-TTS-12Hz-0.6B-Base-8bit`, `Qwen3-TTS-12Hz-1.7B-Base-8bit`
@@ -66,7 +66,7 @@ uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port 1235
 
 ### API Behaviour Notes (keep in sync when editing)
 - **Embedding pooling is per model `type` — never one rule for all.** `standard` (BGE-M3) = CLS of `last_hidden_state` (mlx_embeddings' xlm_roberta `text_embeds` is *mean* pooling, so don't use it); `gemma` = `text_embeds` (mean → dense ×2 → L2); `qwen3_embed` = `text_embeds` (last token; the tokenizer appends `<|endoftext|>`); `embedding_gemma2` = `text_embeds` (mean) via mlx_vlm. Until 2026-11 every path took CLS, which left `gemma-3-300m` / `qwen3-0.6b-embed` near-useless (JMTEB-subset nDCG@10 3–18 vs 69–99) and made the old §2/§4 benchmark wrongly favour bge-m3. `TestRetrievalSanity` (4 queries × 4 docs) fails on the CLS path; keep it when adding models.
-- **Default embedding:** `embeddinggemma-2` (768-d, text + image). Clients with a bge-m3 (1024-d) index must send `model: "bge-m3"`. Text-only retrieval is best on `gemma-3-300m` (`BENCHMARK_REPORT.md` §9).
+- **Default embedding:** `embeddinggemma-2` (768-d, text + image). bge-m3 is no longer registered, so a bge-m3 (1024-d) index must be re-embedded. Text-only retrieval is best on `gemma-3-300m` (`BENCHMARK_REPORT.md` §9).
 - **Prompts:** `gemma` / `embedding_gemma2` prepend `task: search result | query: ` or `title: none | text: ` by `input_type` (images get none). `qwen3_embed` prepends `Instruct: {instruction}\nQuery:` to queries only. BGE-M3 ignores `input_type`.
 - **`dimensions`:** Matryoshka truncation + re-normalisation, only for models with `"matryoshka": True`; 400 otherwise or when larger than the native dimension.
 - **`instruction` parameter:** honored by `qwen3-0.6b-embed` (queries), `qwen3-vl-embedding-2b` and `qwen3-vl-reranker-2b`. The default `qwen3-0.6b` reranker uses a fixed yes/no prompt and ignores it.
