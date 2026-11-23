@@ -24,6 +24,12 @@ except ImportError:
     emb_load = None
 
 try:
+    from mlx_vlm.utils import get_model_path as vlm_get_model_path, load_model as vlm_load_model
+except ImportError:
+    print("Warning: mlx-vlm not found (embeddinggemma-2 unavailable).")
+    vlm_get_model_path = vlm_load_model = None
+
+try:
     from mlx_lm import load as lm_load
 except ImportError:
     print("Warning: mlx-lm not found.")
@@ -52,11 +58,28 @@ except ImportError:
 # モデル設定定義
 # =====================
 
+# "type" はプーリング方式と前処理を決める。各モデルの公式仕様に合わせること:
+#   standard         : CLS (先頭トークン) + L2。BGE-M3 の dense 埋め込みの仕様。
+#                      (mlx_embeddings の xlm_roberta.text_embeds は mean pooling なので使わない)
+#   gemma            : EmbeddingGemma。mean pooling -> dense x2 -> L2 (= mlx_embeddings の text_embeds)
+#   qwen3_embed      : Qwen3-Embedding。末尾 <|endoftext|> の last-token pooling -> L2 (= text_embeds)。
+#                      クエリには指示文を付ける
+#   embedding_gemma2 : EmbeddingGemma 2。mlx_vlm でロード、mean pooling -> L2 (= text_embeds)。画像も可
+#   qwen3_vl_embed   : Qwen3-VL Embedding。model.process() に任せる
+# "matryoshka": True のモデルは `dimensions` で先頭 N 次元に切り詰めて再正規化できる。
 AVAILABLE_EMBED_MODELS = {
     "gemma-3-300m": {
         "id": "mlx-community/embeddinggemma-300m-bf16",
         "type": "gemma",
-        "description": "Gemma 3 300M (Multilingual, Prefixes required)"
+        "matryoshka": True,
+        "description": "EmbeddingGemma 300M (Multilingual, Prefixes required)"
+    },
+    "embeddinggemma-2": {
+        "id": "mlx-community/embeddinggemma-2-bf16",
+        "type": "embedding_gemma2",
+        "matryoshka": True,
+        "supports_images": True,
+        "description": "EmbeddingGemma 2 (Multilingual text + image, 768d, Prefixes required)"
     },
     "bge-m3": {
         "id": "mlx-community/bge-m3-mlx-fp16",
@@ -75,10 +98,19 @@ AVAILABLE_EMBED_MODELS = {
     },
     "qwen3-0.6b-embed": {
         "id": "mlx-community/Qwen3-Embedding-0.6B-mxfp8",
-        "type": "standard",
-        "description": "Qwen3 Embedding 0.6B (Text only)"
+        "type": "qwen3_embed",
+        "matryoshka": True,
+        "description": "Qwen3 Embedding 0.6B (Text only, last-token pooling)"
     }
 }
+
+# EmbeddingGemma 系のタスクプロンプト (config_sentence_transformers.json の query / document)
+GEMMA_QUERY_PREFIX = "task: search result | query: "
+GEMMA_DOC_PREFIX = "title: none | text: "
+# Qwen3-Embedding のクエリ指示文 (config_sentence_transformers.json の query)。文書側は指示文なし
+QWEN3_EMBED_DEFAULT_INSTRUCTION = "Given a web search query, retrieve relevant passages that answer the query"
+EMBED_MAX_LENGTH = 2048
+EMBED_BATCH_SIZE = 16
 
 AVAILABLE_RERANK_MODELS = {
     "qwen3-0.6b": {
@@ -224,12 +256,35 @@ class ModelManager:
                 pass
         return model_processor_tuple
 
+    def _load_embedding_gemma2(self, repo_id: str):
+        """mlx_vlm でモデル本体だけをロードし、前処理は torch 不要の部品で組み立てる。
+
+        mlx_vlm.load() は AutoProcessor を経由し、EmbeddingGemma2 の動画 processor が
+        torch/torchvision を要求するため使わない。テキストは tokenizer、画像は
+        Gemma4ImageProcessorPil (PIL 実装) で前処理する。
+        """
+        if vlm_load_model is None:
+            raise HTTPException(status_code=500, detail="mlx-vlm (embedding_gemma2 support) not available")
+        from transformers import AutoTokenizer
+        from transformers.models.gemma4.image_processing_pil_gemma4 import Gemma4ImageProcessorPil
+
+        path = vlm_get_model_path(repo_id)
+        model = vlm_load_model(path)
+        tokenizer = AutoTokenizer.from_pretrained(path)
+        ip_cfg = dict(_json.loads((path / "processor_config.json").read_text())["image_processor"])
+        ip_cfg.pop("image_processor_type", None)
+        image_processor = Gemma4ImageProcessorPil(**ip_cfg)
+        return model, {"tokenizer": tokenizer, "image_processor": image_processor}
+
     def _load_embed_unlocked(self, name: str, now: float):
         if name in self.embed_cache:
             return
         config = AVAILABLE_EMBED_MODELS[name]
         print(f"Loading Embedding model: {config['id']}...")
-        loaded = emb_load(config['id'])
+        if config["type"] == "embedding_gemma2":
+            loaded = self._load_embedding_gemma2(config["id"])
+        else:
+            loaded = emb_load(config['id'])
         if config.get("type", "").startswith("qwen3_vl"):
             loaded = self._fix_qwen3vl_processor(loaded, config['id'])
         self.embed_cache[name] = loaded
@@ -315,16 +370,94 @@ manager = ModelManager()
 # 推論ロジック
 # =====================
 
-def compute_embeddings(texts: List[str], model_name: str, input_type: str = "document", instruction: Optional[str] = None) -> List[List[float]]:
+def _l2(arr: np.ndarray) -> np.ndarray:
+    arr = np.asarray(arr, dtype=np.float32)
+    norm = np.linalg.norm(arr, axis=-1, keepdims=True)
+    return arr / np.where(norm == 0, 1e-10, norm)
+
+
+def _tokenizer_of(processor):
+    """mlx_embeddings は TokenizerWrapper を返すことがあるので素の tokenizer を取り出す。"""
+    return getattr(processor, "_tokenizer", processor)
+
+
+def _batched_text_embeds(model, tokenizer, texts: List[str], ids_kwarg: str = "input_ids") -> np.ndarray:
+    """text_embeds (モデル自身のプーリング + L2) を EMBED_BATCH_SIZE ずつ計算する。"""
+    out = []
+    for i in range(0, len(texts), EMBED_BATCH_SIZE):
+        enc = tokenizer(texts[i:i + EMBED_BATCH_SIZE], return_tensors="np", padding=True,
+                        truncation=True, max_length=EMBED_MAX_LENGTH)
+        result = model(**{ids_kwarg: mx.array(enc["input_ids"]),
+                          "attention_mask": mx.array(enc["attention_mask"])})
+        out.append(np.array(result.text_embeds.astype(mx.float32)))
+    return np.concatenate(out, axis=0)
+
+
+def _embedding_gemma2_image(model, parts: dict, image) -> np.ndarray:
+    """画像 1 枚 -> 768 次元。<bos><boi>{<image> x n}<eoi><eos> を組み立てて forward する
+    (EmbeddingGemma2Processor.replace_image_token と同じ展開)。"""
+    tok, ip = parts["tokenizer"], parts["image_processor"]
+    pix = ip(images=[image], return_tensors="np")
+    n = int(np.asarray(pix["num_soft_tokens_per_image"]).reshape(-1)[0])
+    enc = tok([f"{tok.boi_token}{tok.image_token * n}{tok.eoi_token}"], return_tensors="np")
+    result = model(
+        mx.array(enc["input_ids"]),
+        attention_mask=mx.array(enc["attention_mask"]),
+        pixel_values=mx.array(pix["pixel_values"]),
+        image_position_ids=mx.array(pix["image_position_ids"]),
+    )
+    return np.array(result.text_embeds.astype(mx.float32))[0]
+
+
+def _gemma_prefix(input_type: str) -> str:
+    return GEMMA_QUERY_PREFIX if input_type == "query" else GEMMA_DOC_PREFIX
+
+
+def compute_embeddings(texts: List[Any], model_name: str, input_type: str = "document",
+                       instruction: Optional[str] = None, dimensions: Optional[int] = None) -> List[List[float]]:
+    """texts の要素は str、または embeddinggemma-2 の場合のみ PIL.Image。"""
     (model, processor), config = manager.get_embed(model_name)
-    
-    # プレフィックス処理
-    if config["type"] == "gemma":
-        prefix = "task: search result | query: " if input_type == "query" else "title: none | text: "
-        texts = [f"{prefix}{t}" for t in texts]
-    
+    vecs = _compute_embeddings_raw(model, processor, config, texts, input_type, instruction)
+    if dimensions:
+        if dimensions > vecs.shape[1]:
+            raise HTTPException(status_code=400, detail=f"dimensions={dimensions} exceeds {model_name}'s {vecs.shape[1]}")
+        vecs = _l2(vecs[:, :dimensions])
+    return vecs.tolist()
+
+
+def _compute_embeddings_raw(model, processor, config, texts, input_type, instruction):
+    mtype = config["type"]
+
+    # EmbeddingGemma (300M): mean pooling -> dense -> L2 は mlx_embeddings の text_embeds。
+    # gemma3_text の __call__ は引数名が 'inputs'。
+    if mtype == "gemma":
+        prefixed = [_gemma_prefix(input_type) + t for t in texts]
+        return _batched_text_embeds(model, _tokenizer_of(processor), prefixed, ids_kwarg="inputs")
+
+    # EmbeddingGemma 2: テキストはプロンプト付きでバッチ処理、画像は 1 枚ずつ。元の順序で返す。
+    if mtype == "embedding_gemma2":
+        out = [None] * len(texts)
+        text_idx = [i for i, t in enumerate(texts) if isinstance(t, str)]
+        if text_idx:
+            prefixed = [_gemma_prefix(input_type) + texts[i] for i in text_idx]
+            for i, v in zip(text_idx, _batched_text_embeds(model, processor["tokenizer"], prefixed)):
+                out[i] = v
+        for i, t in enumerate(texts):
+            if not isinstance(t, str):
+                out[i] = _embedding_gemma2_image(model, processor, t)
+                mx.clear_cache()
+        return _l2(np.stack(out))
+
+    # Qwen3-Embedding: last-token pooling (tokenizer が末尾に <|endoftext|> を付ける) は text_embeds。
+    # クエリだけ "Instruct: ...\nQuery:" を前置する。
+    if mtype == "qwen3_embed":
+        if input_type == "query":
+            inst = instruction or QWEN3_EMBED_DEFAULT_INSTRUCTION
+            texts = [f"Instruct: {inst}\nQuery:{t}" for t in texts]
+        return _batched_text_embeds(model, _tokenizer_of(processor), texts)
+
     # Qwen3-VL Embedding モデル
-    if config["type"] == "qwen3_vl_embed":
+    if mtype == "qwen3_vl_embed":
         inst = instruction or (
             "Represent this sentence for retrieving relevant documents."
             if input_type == "query"
@@ -332,36 +465,15 @@ def compute_embeddings(texts: List[str], model_name: str, input_type: str = "doc
         )
         inputs = [{"text": t, "instruction": inst} for t in texts]
         embeddings = model.process(inputs, processor=processor)
-        arr = np.array(embeddings)
-        norm = np.linalg.norm(arr, axis=-1, keepdims=True)
-        norm = np.where(norm == 0, 1e-10, norm)
-        return (arr / norm).tolist()
-    
-    # gemmaモデルは __call__ の引数名が 'inputs' (mlx_embeddings.generate は 'input_ids' を渡すためエラー)
-    if config["type"] == "gemma":
-        tokenized = processor(texts, return_tensors="np", padding=True, truncation=True)
-        input_data = {k: mx.array(v) for k, v in tokenized.items()}
-        # input_ids → inputs にリネーム
-        if "input_ids" in input_data and "inputs" not in input_data:
-            input_data["inputs"] = input_data.pop("input_ids")
-        output = model(**input_data)
-    else:
+        return _l2(np.array(embeddings))
+
+    # standard (BGE-M3): CLS トークン + L2。mlx_embeddings の xlm_roberta.text_embeds は
+    # mean pooling なので使わず、last_hidden_state の先頭を取る。
+    if mtype == "standard":
         output = emb_generate(model, processor, texts=texts)
+        return _l2(np.array(output.last_hidden_state[:, 0, :].astype(mx.float32)))
 
-    if hasattr(output, "last_hidden_state"):
-        state = np.array(output.last_hidden_state)
-        cls_embeddings = state[:, 0, :]
-        norm = np.linalg.norm(cls_embeddings, axis=-1, keepdims=True)
-        norm = np.where(norm == 0, 1e-10, norm)
-        return (cls_embeddings / norm).tolist()
-    elif hasattr(output, "pooler_output"):
-        return np.array(output.pooler_output).tolist()
-    elif hasattr(output, "embeddings"):
-        return np.array(output.embeddings).tolist()
-    if hasattr(output, "tolist"):
-        return output.tolist()
-
-    raise HTTPException(status_code=500, detail="Failed to process embedding output")
+    raise HTTPException(status_code=500, detail=f"Unknown embedding model type: {mtype}")
 
 def compute_rerank(query: str, docs: List[str], model_name: str, instruction: Optional[str] = None) -> List[float]:
     cached, config = manager.get_rerank(model_name)
@@ -420,26 +532,97 @@ def compute_rerank(query: str, docs: List[str], model_name: str, instruction: Op
 
 app = FastAPI(title="MLX Multi-Model Embedding + Rerank Server")
 
+EmbInputItem = Union[str, Dict[str, Any]]
+
+
 class EmbReq(BaseModel):
     model: Optional[str] = DEFAULT_EMBED
-    input: Union[str, List[str]]
+    # str / str のリスト / 画像オブジェクトを含むリスト。画像オブジェクトの形式:
+    #   {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+    #   {"type": "image", "image": "data:image/...;base64,..." または生の base64}
+    input: Union[EmbInputItem, List[EmbInputItem]]
     input_type: Optional[str] = "document"
     instruction: Optional[str] = None
+    # Matryoshka: 先頭 N 次元に切り詰めて再正規化 (OpenAI の `dimensions` と同名)
+    dimensions: Optional[int] = None
+
+
+def _image_payload(item: Dict[str, Any]) -> str:
+    if item.get("type") == "image_url" or "image_url" in item:
+        url = item.get("image_url")
+        url = url.get("url") if isinstance(url, dict) else url
+    elif item.get("type") == "image":
+        url = item.get("image")
+    else:
+        raise HTTPException(status_code=400, detail="input objects must be images: "
+                            "{'type': 'image_url', 'image_url': {'url': 'data:...'}} or {'type': 'image', 'image': '<base64>'}")
+    if not isinstance(url, str) or not url:
+        raise HTTPException(status_code=400, detail="image input has no data")
+    return url
+
+
+def _decode_image(data: str):
+    """data URI または生の base64 だけを受け付ける (URL やファイルパスは SSRF / ローカルファイル読み出しになるので拒否)。"""
+    import base64
+    import binascii
+    from PIL import Image, UnidentifiedImageError
+
+    if data.startswith("data:"):
+        header, _, data = data.partition(",")
+        if ";base64" not in header:
+            raise HTTPException(status_code=400, detail="image data URI must be base64-encoded")
+    elif data.startswith(("http://", "https://", "file:", "/", ".")):
+        raise HTTPException(status_code=400, detail="image URLs and file paths are not accepted; send a base64 data URI")
+    try:
+        img = Image.open(io.BytesIO(base64.b64decode(data, validate=True)))
+        img.load()
+    except (binascii.Error, ValueError, UnidentifiedImageError, OSError) as e:
+        raise HTTPException(status_code=400, detail=f"invalid image data: {e}")
+    return img.convert("RGB")
+
+
+def _parse_embedding_input(req: EmbReq, config: Dict[str, Any], model_name: str) -> List[Any]:
+    raw = req.input if isinstance(req.input, list) else [req.input]
+    if not raw:
+        raise HTTPException(status_code=400, detail="input must not be empty")
+    items: List[Any] = []
+    for x in raw:
+        if isinstance(x, str):
+            # 孤立サロゲート (絵文字がチャンク境界で分割された断片) はトークナイザが落ちるため U+FFFD に置換
+            items.append(x.encode("utf-16", "surrogatepass").decode("utf-16", "replace"))
+            continue
+        payload = _image_payload(x)
+        if not config.get("supports_images"):
+            raise HTTPException(status_code=400, detail=f"Model {model_name} does not accept image inputs")
+        items.append(_decode_image(payload))
+    return items
+
 
 @app.post("/v1/embeddings")
 async def embeddings(req: EmbReq):
     import traceback
     try:
-        texts = [req.input] if isinstance(req.input, str) else req.input
         model_name = req.model or DEFAULT_EMBED
-        vecs = compute_embeddings(texts, model_name, req.input_type, req.instruction)
-        
+        # モデルをロードする前に検証する (不正なリクエストで GB 単位のロードを起こさない)
+        config = AVAILABLE_EMBED_MODELS.get(model_name)
+        if config is None:
+            raise HTTPException(status_code=400, detail=f"Unsupported embedding model: {model_name}")
+        if req.dimensions is not None:
+            if not config.get("matryoshka"):
+                raise HTTPException(status_code=400, detail=f"Model {model_name} does not support `dimensions`")
+            if req.dimensions <= 0:
+                raise HTTPException(status_code=400, detail="dimensions must be a positive integer")
+        items = _parse_embedding_input(req, config, model_name)
+        vecs = compute_embeddings(items, model_name, req.input_type, req.instruction, req.dimensions)
+
         return {
             "object": "list",
             "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vecs)],
             "model": model_name,
             "usage": {"prompt_tokens": 0, "total_tokens": 0},
         }
+    except HTTPException:
+        raise
     except Exception as e:
         tb = traceback.format_exc()
         print(f"Embedding error: {tb}")
@@ -728,7 +911,8 @@ async def audio_speech(req: SpeechReq):
 # MLX推論でメインのイベントループがブロックされても
 # スーパーバイザーのヘルスチェックに応答できるようにする
 # =====================
-HEALTH_PORT = 1236
+# 監視スクリプト (run_mlx_server.sh) は 1236 を見る。並行して試験用サーバーを立てる場合のみ上書きする
+HEALTH_PORT = int(os.environ.get("EMBED_HEALTH_PORT", "1236"))
 
 class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):

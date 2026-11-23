@@ -11,6 +11,9 @@ dependencies = [
     "mlx-embeddings",
     "mlx-lm",
     "mlx-audio>=0.5.1",
+    # embeddinggemma-2 (model_type embedding_gemma2) is only in mlx-vlm main as of 2026-11;
+    # pinned to the revision the mlx-community weights were converted with (validation.json).
+    "mlx-vlm @ https://github.com/Blaizzy/mlx-vlm/archive/3d87e88402f307efbf68e568971aa887ee7d9ed0.tar.gz",
     "python-multipart",
     "numpy",
 ]

@@ -7,6 +7,7 @@ exhibits, so a failure means the server and the documentation disagree.
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import httpx
@@ -16,8 +17,9 @@ DATA_DIR = Path(__file__).parent / "data"
 CASES_PATH = DATA_DIR / "test_cases.json"
 
 _CASES = json.loads(CASES_PATH.read_text(encoding="utf-8"))
-BASE_URL = _CASES["server"]["base_url"]
-HEALTH_PROBE_URL = _CASES["server"]["health_probe_url"]
+# EMBED_BASE_URL / EMBED_HEALTH_URL で、稼働中の 1235/1236 とは別に立てた試験用サーバーを指せる
+BASE_URL = os.environ.get("EMBED_BASE_URL", _CASES["server"]["base_url"])
+HEALTH_PROBE_URL = os.environ.get("EMBED_HEALTH_URL", _CASES["server"]["health_probe_url"])
 
 
 def pytest_configure(config):

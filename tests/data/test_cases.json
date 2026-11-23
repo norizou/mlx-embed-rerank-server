@@ -7,12 +7,16 @@
     "expected_status": "ok",
     "expected_embed_models": [
       "gemma-3-300m",
+      "embeddinggemma-2",
       "bge-m3",
       "bge-m3-8bit",
       "qwen3-vl-embedding-2b",
       "qwen3-0.6b-embed"
     ],
-    "expected_rerank_models": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
+    "expected_rerank_models": [
+      "qwen3-0.6b",
+      "qwen3-vl-reranker-2b"
+    ],
     "expected_audio_models": [
       "qwen3-asr-0.6b-8bit",
       "qwen3-asr-1.7b-8bit",
@@ -35,7 +39,21 @@
   },
   "embedding": {
     "gemma-3-300m": {
-      "input": ["日本語のテスト文書です", "Another document for testing"],
+      "input": [
+        "日本語のテスト文書です",
+        "Another document for testing"
+      ],
+      "input_type": "document",
+      "expected_dim": 768,
+      "expected_count": 2,
+      "prefix_sensitive": true,
+      "requires_vl": false
+    },
+    "embeddinggemma-2": {
+      "input": [
+        "日本語のテスト文書です",
+        "Another document for testing"
+      ],
       "input_type": "document",
       "expected_dim": 768,
       "expected_count": 2,
@@ -43,7 +61,10 @@
       "requires_vl": false
     },
     "bge-m3": {
-      "input": ["クエリのテスト", "ドキュメントのテスト"],
+      "input": [
+        "クエリのテスト",
+        "ドキュメントのテスト"
+      ],
       "input_type": "query",
       "expected_dim": 1024,
       "expected_count": 2,
@@ -51,7 +72,10 @@
       "requires_vl": false
     },
     "bge-m3-8bit": {
-      "input": ["量子化モデルのテスト", "8bit quantized model test"],
+      "input": [
+        "量子化モデルのテスト",
+        "8bit quantized model test"
+      ],
       "input_type": "document",
       "expected_dim": 1024,
       "expected_count": 2,
@@ -59,15 +83,21 @@
       "requires_vl": false
     },
     "qwen3-0.6b-embed": {
-      "input": ["Qwen3 埋め込みのテスト", "Qwen3 embedding test"],
+      "input": [
+        "Qwen3 埋め込みのテスト",
+        "Qwen3 embedding test"
+      ],
       "input_type": "document",
       "expected_dim": 1024,
       "expected_count": 2,
-      "prefix_sensitive": false,
+      "prefix_sensitive": true,
       "requires_vl": false
     },
     "qwen3-vl-embedding-2b": {
-      "input": ["テストドキュメント1", "テストドキュメント2"],
+      "input": [
+        "テストドキュメント1",
+        "テストドキュメント2"
+      ],
       "input_type": "document",
       "expected_dim": 2048,
       "expected_count": 2,
@@ -86,13 +116,19 @@
       ],
       "top_k": 2,
       "expected_first_index": 0,
-      "score_range": [0.0, 1.0],
+      "score_range": [
+        0.0,
+        1.0
+      ],
       "instruction_sensitive": false,
       "requires_vl": false
     },
     "qwen3-vl-reranker-2b": {
       "query": "猫",
-      "documents": ["犬", "猫"],
+      "documents": [
+        "犬",
+        "猫"
+      ],
       "top_k": 2,
       "expected_first_index": 1,
       "score_range": null,
@@ -130,14 +166,17 @@
   "errors": {
     "unknown_model_name": "no-such-model-xyz",
     "expected_status": {
-      "embeddings_unknown_model": 500,
+      "embeddings_unknown_model": 400,
       "rerank_unknown_model": 400,
       "stt_unknown_model": 400,
       "tts_unknown_model": 400,
       "stt_wrong_type_model": 400,
       "tts_wrong_type_model": 400,
       "tts_wrong_engine_param": 400,
-      "tts_irodori_missing_reference": 400
+      "tts_irodori_missing_reference": 400,
+      "embeddings_image_on_text_model": 400,
+      "embeddings_bad_image": 400,
+      "embeddings_bad_dimensions": 400
     },
     "wrong_type": {
       "tts_model_for_stt": "qwen3-tts-0.6b-base-8bit",
@@ -147,5 +186,29 @@
       "qwen3_model": "qwen3-tts-0.6b-base-8bit",
       "irodori_model": "irodori-tts-v4.1-small-8bit"
     }
+  },
+  "embedding_retrieval": {
+    "queries": [
+      "和名をハダカカメガイといい、「流氷の天使」と呼ばれる動物は何でしょう?",
+      "マイナンバーカードはどこで申し込めますか",
+      "石を道具に使って貝を割る海の動物は?",
+      "日本一高い電波塔の高さは何メートル?"
+    ],
+    "documents": [
+      "クリオネは北の海に住む巻き貝の一種で、その姿から流氷の天使と呼ばれる。",
+      "マイナンバーカードは市区町村の窓口かオンラインで申請できる。",
+      "ラッコは北太平洋の沿岸に住み、貝を石で割って食べる。",
+      "東京スカイツリーは高さ634メートルの電波塔である。"
+    ]
+  },
+  "embedding_matryoshka": {
+    "model": "embeddinggemma-2",
+    "dimensions": 256,
+    "non_matryoshka_model": "bge-m3"
+  },
+  "embedding_images": {
+    "model": "embeddinggemma-2",
+    "expected_dim": 768,
+    "text_only_model": "bge-m3"
   }
 }

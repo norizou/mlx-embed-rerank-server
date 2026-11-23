@@ -1,9 +1,9 @@
 """Error semantics.
 
-These assertions pin down deliberately *asymmetric* behaviour:
-`/v1/embeddings` wraps every exception (including the internal 400 for an
-unknown model) into a 500 with a traceback, while the other endpoints let the
-400 through. Documented in README.md "Error responses".
+Request errors are 400 on every endpoint. `/v1/embeddings` validates the model
+name, image inputs and `dimensions` before loading anything, and only wraps
+*unexpected* exceptions into a 500 with a traceback. (It used to turn the
+unknown-model 400 into a 500 as well.) Documented in README.md "Error responses".
 """
 
 import io
@@ -22,10 +22,10 @@ def expected_status(test_cases):
 
 
 class TestUnknownModel:
-    def test_embeddings_wraps_the_400_into_a_500(self, client, unknown_model, expected_status):
+    def test_embeddings_returns_400(self, client, unknown_model, expected_status):
         resp = client.post("/v1/embeddings", json={"model": unknown_model, "input": "x"})
         assert resp.status_code == expected_status["embeddings_unknown_model"]
-        assert unknown_model in resp.json()["detail"]
+        assert resp.json()["detail"] == f"Unsupported embedding model: {unknown_model}"
 
     def test_rerank_returns_400(self, client, unknown_model, expected_status):
         resp = client.post(
@@ -132,3 +132,43 @@ class TestRequestValidation:
 
     def test_unknown_route_is_404(self, client):
         assert client.get("/v1/nope").status_code == 404
+
+
+class TestEmbeddingInputErrors:
+    """Image / `dimensions` problems are 400s raised before the model is loaded."""
+
+    TINY_PNG = (
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+    )
+
+    def test_image_on_text_only_model(self, client, test_cases):
+        model = test_cases["embedding_images"]["text_only_model"]
+        resp = client.post("/v1/embeddings", json={"model": model, "input": [{"type": "image", "image": self.TINY_PNG}]})
+        assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_image_on_text_model"]
+        assert "does not accept image inputs" in resp.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "image",
+        ["https://example.com/cat.png", "/etc/hosts", "data:image/png;base64,not-base64!!", "data:image/png,rawbytes"],
+    )
+    def test_rejects_urls_paths_and_bad_base64(self, client, test_cases, image):
+        """Only base64 data is accepted: URLs and paths would let callers make the server fetch or read files."""
+        model = test_cases["embedding_images"]["model"]
+        resp = client.post("/v1/embeddings", json={"model": model, "input": [{"type": "image", "image": image}]})
+        assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_bad_image"]
+
+    def test_unknown_object_shape(self, client, test_cases):
+        model = test_cases["embedding_images"]["model"]
+        resp = client.post("/v1/embeddings", json={"model": model, "input": [{"type": "audio", "audio": "x"}]})
+        assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_bad_image"]
+
+    def test_dimensions_on_non_matryoshka_model(self, client, test_cases):
+        case = test_cases["embedding_matryoshka"]
+        resp = client.post("/v1/embeddings", json={"model": case["non_matryoshka_model"], "input": "x", "dimensions": 256})
+        assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_bad_dimensions"]
+
+    @pytest.mark.parametrize("dimensions", [0, -1, 4096])
+    def test_dimensions_out_of_range(self, client, test_cases, dimensions):
+        case = test_cases["embedding_matryoshka"]
+        resp = client.post("/v1/embeddings", json={"model": case["model"], "input": "x", "dimensions": dimensions})
+        assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_bad_dimensions"]

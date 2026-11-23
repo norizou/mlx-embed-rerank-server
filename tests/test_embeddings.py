@@ -6,6 +6,7 @@ from conftest import embed, l2_norm, requires_vl
 
 EMBED_MODELS = [
     "gemma-3-300m",
+    "embeddinggemma-2",
     "bge-m3",
     "bge-m3-8bit",
     "qwen3-0.6b-embed",
@@ -63,16 +64,24 @@ class TestEmbeddingRequestShapes:
 
 
 class TestInputTypeHandling:
-    """`input_type` only drives the gemma prefix / VL default instruction."""
+    """`input_type` drives the gemma / embeddinggemma-2 prompt, the qwen3-0.6b-embed
+    query instruction and the VL default instruction; BGE-M3 ignores it."""
 
-    def test_gemma_prefix_changes_the_vector(self, client, test_cases):
-        assert test_cases["embedding"]["gemma-3-300m"]["prefix_sensitive"] is True
+    @pytest.mark.parametrize("model_name", ["gemma-3-300m", "embeddinggemma-2", "qwen3-0.6b-embed"])
+    def test_query_prompt_changes_the_vector(self, client, test_cases, model_name):
+        assert test_cases["embedding"][model_name]["prefix_sensitive"] is True
         text = "プレフィックスの効果を確認する文"
-        as_query = embed(client, "gemma-3-300m", [text], "query")
-        as_document = embed(client, "gemma-3-300m", [text], "document")
+        as_query = embed(client, model_name, [text], "query")
+        as_document = embed(client, model_name, [text], "document")
         assert as_query["data"][0]["embedding"] != as_document["data"][0]["embedding"]
 
-    @pytest.mark.parametrize("model_name", ["bge-m3", "bge-m3-8bit", "qwen3-0.6b-embed"])
+    def test_qwen3_embed_honors_instruction_on_queries(self, client):
+        text = "instruction は qwen3-0.6b-embed のクエリに効く"
+        default = embed(client, "qwen3-0.6b-embed", [text], "query")
+        custom = embed(client, "qwen3-0.6b-embed", [text], "query", instruction="Retrieve semantically similar text.")
+        assert default["data"][0]["embedding"] != custom["data"][0]["embedding"]
+
+    @pytest.mark.parametrize("model_name", ["bge-m3", "bge-m3-8bit"])
     def test_standard_models_ignore_input_type(self, client, test_cases, model_name):
         assert test_cases["embedding"][model_name]["prefix_sensitive"] is False
         text = "input_type は標準モデルでは無視される"
@@ -80,9 +89,9 @@ class TestInputTypeHandling:
         as_document = embed(client, model_name, [text], "document")
         assert as_query["data"][0]["embedding"] == as_document["data"][0]["embedding"]
 
-    @pytest.mark.parametrize("model_name", ["bge-m3", "gemma-3-300m"])
-    def test_instruction_is_ignored_by_non_vl_models(self, client, model_name):
-        """`instruction` is honored only by qwen3-vl-embedding-2b."""
+    @pytest.mark.parametrize("model_name", ["bge-m3", "gemma-3-300m", "embeddinggemma-2"])
+    def test_instruction_is_ignored_by_prompt_models(self, client, model_name):
+        """`instruction` is honored only by qwen3-0.6b-embed (queries) and qwen3-vl-embedding-2b."""
         text = "instruction は VL 以外では無視される"
         without = embed(client, model_name, [text])
         with_instruction = embed(client, model_name, [text], instruction="Totally different instruction.")
@@ -107,3 +116,93 @@ class TestEmbeddingSemantics:
         animal_pair = cosine(vectors[0], vectors[1])
         unrelated_pair = cosine(vectors[0], vectors[2])
         assert animal_pair > unrelated_pair
+
+
+def _cosine(a, b) -> float:
+    return sum(x * y for x, y in zip(a, b))
+
+
+class TestRetrievalSanity:
+    """Pooling regression guard.
+
+    The server used to take the first token (CLS) for every model. That is right
+    for BGE-M3 but wrong for EmbeddingGemma (mean pooling + dense) and
+    Qwen3-Embedding (last-token pooling): with it, those models ranked the answer
+    below unrelated passages (JMTEB nDCG@10 ~3-18 instead of ~75-99). The
+    animal/quantum check above did not catch it, and neither does a single query:
+    each of four queries must rank its own answer first (the CLS path fails this).
+    """
+
+    @pytest.mark.parametrize(
+        "model_name", ["gemma-3-300m", "embeddinggemma-2", "bge-m3", "bge-m3-8bit", "qwen3-0.6b-embed"]
+    )
+    def test_each_query_ranks_its_answer_first(self, client, test_cases, model_name):
+        case = test_cases["embedding_retrieval"]
+        queries = [d["embedding"] for d in embed(client, model_name, case["queries"], "query")["data"]]
+        docs = [d["embedding"] for d in embed(client, model_name, case["documents"], "document")["data"]]
+        top = [max(range(len(docs)), key=lambda j: _cosine(q, docs[j])) for q in queries]
+        assert top == list(range(len(queries))), f"{model_name}: top documents {top}"
+
+
+class TestMatryoshka:
+    def test_dimensions_truncates_and_renormalizes(self, client, test_cases):
+        case = test_cases["embedding_matryoshka"]
+        text = "Matryoshka で次元を切り詰める"
+        full = embed(client, case["model"], [text])["data"][0]["embedding"]
+        resp = client.post(
+            "/v1/embeddings", json={"model": case["model"], "input": [text], "dimensions": case["dimensions"]}
+        )
+        assert resp.status_code == 200, resp.text[:300]
+        short = resp.json()["data"][0]["embedding"]
+        assert len(short) == case["dimensions"]
+        assert 0.99 <= l2_norm(short) <= 1.01
+        head = full[: case["dimensions"]]
+        norm = l2_norm(head)
+        assert all(abs(a - b / norm) < 1e-4 for a, b in zip(short, head))
+
+
+def png_data_uri(rgb, size=(64, 64)) -> str:
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", size, rgb).save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+class TestImageInputs:
+    """embeddinggemma-2 embeds images into the same space as text."""
+
+    def test_image_url_object_returns_normalized_vector(self, client, test_cases):
+        case = test_cases["embedding_images"]
+        item = {"type": "image_url", "image_url": {"url": png_data_uri((200, 30, 30))}}
+        resp = client.post("/v1/embeddings", json={"model": case["model"], "input": [item]})
+        assert resp.status_code == 200, resp.text[:300]
+        vector = resp.json()["data"][0]["embedding"]
+        assert len(vector) == case["expected_dim"]
+        assert 0.99 <= l2_norm(vector) <= 1.01
+
+    def test_mixed_text_and_image_keep_order(self, client, test_cases):
+        """A mixed list returns one vector per item, in input order, equal to separate calls."""
+        model = test_cases["embedding_images"]["model"]
+        img = {"type": "image", "image": png_data_uri((30, 30, 200))}
+        mixed = client.post("/v1/embeddings", json={"model": model, "input": ["青い画像", img]})
+        assert mixed.status_code == 200, mixed.text[:300]
+        mixed = mixed.json()["data"]
+        alone_text = embed(client, model, ["青い画像"])["data"][0]["embedding"]
+        alone_img = client.post("/v1/embeddings", json={"model": model, "input": [img]}).json()["data"][0]["embedding"]
+        assert [d["index"] for d in mixed] == [0, 1]
+        assert _cosine(mixed[0]["embedding"], alone_text) > 0.999
+        assert _cosine(mixed[1]["embedding"], alone_img) > 0.999
+
+    def test_caption_matches_its_color(self, client, test_cases):
+        """Text and image share one space: each caption must be closest to its own color."""
+        model = test_cases["embedding_images"]["model"]
+        images = [{"type": "image", "image": png_data_uri(c)} for c in ((220, 20, 20), (20, 20, 220))]
+        img_vecs = [d["embedding"] for d in client.post(
+            "/v1/embeddings", json={"model": model, "input": images}).json()["data"]]
+        cap_vecs = [d["embedding"] for d in embed(client, model, ["真っ赤な画像", "真っ青な画像"], "query")["data"]]
+        assert _cosine(cap_vecs[0], img_vecs[0]) > _cosine(cap_vecs[0], img_vecs[1])
+        assert _cosine(cap_vecs[1], img_vecs[1]) > _cosine(cap_vecs[1], img_vecs[0])
