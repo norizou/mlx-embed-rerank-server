@@ -162,7 +162,10 @@ AVAILABLE_AUDIO_MODELS = {
 # キーワード引数が異なるため、種別名でディスパッチする。
 TTS_TYPES = {"tts", "tts_irodori"}
 
-DEFAULT_EMBED = "bge-m3"
+# embeddinggemma-2: JMTEB サブセットで bge-m3 と同等の精度、約 2.3 倍速く、768 次元で画像も扱える
+# (BENCHMARK_REPORT.md)。bge-m3 (1024 次元) で作った既存インデックスを使うクライアントは
+# model="bge-m3" を明示すること。
+DEFAULT_EMBED = "embeddinggemma-2"
 DEFAULT_RERANK = "qwen3-0.6b"
 DEFAULT_ASR = "qwen3-asr-1.7b-8bit"
 DEFAULT_TTS = "irodori-tts-v4.1-small-8bit"

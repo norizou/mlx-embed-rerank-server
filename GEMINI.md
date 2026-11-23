@@ -6,9 +6,9 @@
 ### Key Technologies
 - **Language:** Python 3.13+ (managed by `uv`)
 - **Web Framework:** FastAPI + Uvicorn (API on port `1235`), plus a `http.server` health probe on port `1236` in a daemon thread
-- **AI/ML Backend:** MLX (`mlx-embeddings`, `mlx-lm`, `mlx-audio`). No PyTorch path remains in the server.
+- **AI/ML Backend:** MLX (`mlx-embeddings`, `mlx-lm`, `mlx-audio`, `mlx-vlm` for EmbeddingGemma 2). No PyTorch path remains in the server.
 - **Models:**
-  - **Embedding (5):** `bge-m3` (default), `bge-m3-8bit`, `embeddinggemma-300m-bf16`, `Qwen3-Embedding-0.6B-mxfp8`, `Qwen3-VL-Embedding-2B-mxfp8`
+  - **Embedding (6):** `embeddinggemma-2-bf16` (default, text + image), `embeddinggemma-300m-bf16`, `bge-m3`, `bge-m3-8bit`, `Qwen3-Embedding-0.6B-mxfp8`, `Qwen3-VL-Embedding-2B-mxfp8`
   - **Reranker (2):** `Qwen3-Reranker-0.6B-mxfp8` (default), `Qwen3-VL-Reranker-2B-mxfp8`
   - **ASR (2):** `Qwen3-ASR-1.7B-8bit` (default), `Qwen3-ASR-0.6B-8bit`
   - **TTS — Qwen3 (2):** `Qwen3-TTS-12Hz-0.6B-Base-8bit`, `Qwen3-TTS-12Hz-1.7B-Base-8bit`
@@ -21,13 +21,13 @@ A single FastAPI app exposes OpenAI-compatible `/v1/embeddings`, `/v1/audio/tran
 All models are lazily loaded on the first request that needs them (nothing is preloaded at startup). `ModelManager` keeps four caches (`embed_cache`, `rerank_cache`, `asr_cache`, `tts_cache`) guarded by a single `threading.Lock`.
 
 **Auto Fallback:**
-A repeating 30-second timer unloads the Qwen3-VL embedding/reranker as a pair once either has been idle for 30 seconds (so 30–60 seconds in practice), calls `mx.metal.clear_cache()`, and preloads the default `bge-m3` / `qwen3-0.6b`. ASR/TTS models are never auto-unloaded.
+A repeating 30-second timer unloads the Qwen3-VL embedding/reranker as a pair once either has been idle for 30 seconds (so 30–60 seconds in practice), calls `mx.metal.clear_cache()`, and preloads the default `embeddinggemma-2` / `qwen3-0.6b`. ASR/TTS models are never auto-unloaded.
 
 **Health Probe:**
 MLX inference blocks uvicorn's event loop, so a separate daemon thread serves `{"status": "ok"}` on port `1236`. `run_mlx_server.sh` monitors **1236** (not 1235) and restarts the process after 2 consecutive failures.
 
 **Qwen3-VL requirement:**
-`torch` / `torchvision` are **not** in `pyproject.toml`. Without them, `transformers`' `AutoImageProcessor` raises and any Qwen3-VL request returns HTTP 500. Install them explicitly (`uv pip install torch torchvision`) when those models are needed; every other model works without them.
+`torch` / `torchvision` are **not** in `pyproject.toml`. Without them, `transformers`' `AutoImageProcessor` raises and any Qwen3-VL request returns HTTP 500. Install them explicitly (`uv pip install torch torchvision`) when those models are needed; every other model works without them — including `embeddinggemma-2` images, which use `Gemma4ImageProcessorPil` built from `processor_config.json` instead of `AutoProcessor` (whose video processor needs torch).
 
 ## Building and Running
 
@@ -65,16 +65,19 @@ uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port 1235
 - **Memory Management:** thread-safe model caching plus timeout-based unloading for Qwen3-VL only.
 
 ### API Behaviour Notes (keep in sync when editing)
-- **Embedding output:** every model path takes the first token of `last_hidden_state` (CLS) and L2-normalizes it. This matches BGE-M3's dense-embedding spec; `bge-m3` is therefore the recommended default (see `BENCHMARK_REPORT.md` §4, where `gemma-3-300m` / `qwen3-0.6b-embed` missed the target document in top-100 while `bge-m3` reached recall 100%).
-- **`instruction` parameter:** honored only by `qwen3-vl-embedding-2b` and `qwen3-vl-reranker-2b`. The default `qwen3-0.6b` reranker uses a fixed yes/no prompt and ignores it.
+- **Embedding pooling is per model `type` — never one rule for all.** `standard` (BGE-M3) = CLS of `last_hidden_state` (mlx_embeddings' xlm_roberta `text_embeds` is *mean* pooling, so don't use it); `gemma` = `text_embeds` (mean → dense ×2 → L2); `qwen3_embed` = `text_embeds` (last token; the tokenizer appends `<|endoftext|>`); `embedding_gemma2` = `text_embeds` (mean) via mlx_vlm. Until 2026-11 every path took CLS, which left `gemma-3-300m` / `qwen3-0.6b-embed` near-useless (JMTEB-subset nDCG@10 3–18 vs 69–99) and made the old §2/§4 benchmark wrongly favour bge-m3. `TestRetrievalSanity` (4 queries × 4 docs) fails on the CLS path; keep it when adding models.
+- **Default embedding:** `embeddinggemma-2` (768-d, text + image). Clients with a bge-m3 (1024-d) index must send `model: "bge-m3"`. Text-only retrieval is best on `gemma-3-300m` (`BENCHMARK_REPORT.md` §9).
+- **Prompts:** `gemma` / `embedding_gemma2` prepend `task: search result | query: ` or `title: none | text: ` by `input_type` (images get none). `qwen3_embed` prepends `Instruct: {instruction}\nQuery:` to queries only. BGE-M3 ignores `input_type`.
+- **`dimensions`:** Matryoshka truncation + re-normalisation, only for models with `"matryoshka": True`; 400 otherwise or when larger than the native dimension.
+- **`instruction` parameter:** honored by `qwen3-0.6b-embed` (queries), `qwen3-vl-embedding-2b` and `qwen3-vl-reranker-2b`. The default `qwen3-0.6b` reranker uses a fixed yes/no prompt and ignores it.
 - **Rerank scores:** softmax over the `yes` / `no` logits, so absolute values are small; the ordering is what matters. `top_k` defaults to 10 and `0` means "return everything".
-- **Errors:** `/v1/rerank` and the audio endpoints return `400` for unknown model names; `/v1/embeddings` wraps every exception (including that 400) into a `500` whose `detail` carries the full traceback. Do not expose port 1235 publicly.
+- **Errors:** unknown model names are `400` on every endpoint. `/v1/embeddings` validates model, images and `dimensions` before `get_embed()` (no multi-GB load for a bad request), re-raises `HTTPException`, and wraps only unexpected exceptions into a `500` whose `detail` carries the full traceback. Do not expose port 1235 publicly.
 - **Irodori `caption` is not `ref_text`:** `caption` (alias `instruct`) is a *voice description* gated on `config.dit.use_caption_condition`, which v4.1 sets but older base variants do not. Never map the ICL transcript `ref_text` onto it. Irodori clones from `ref_audio` alone. The registry's `supports_caption` flag drives the `instruct` 400, so re-registering a caption-less variant restores the guard automatically.
 - **Irodori duration:** a variant without a duration predictor falls back to `config.sampler.sequence_length` (750 frames = 30 s, ~24 GB) unless `seconds` is passed. `sequence_length` cannot be set through `generate()` — it is popped before the kwargs merge — so `seconds` is the only lever. v4.1 has a predictor, so this only matters if an older variant is re-registered.
 - **Irodori multi-clip reference:** v4 accepts a list for `ref_audio` and encodes each clip separately before concatenating (120 s budget, overridable with `max_ref_seconds`). Qwen3-TTS takes a single path and returns 400 for a list.
 - **Ignored vs rejected TTS params:** Qwen3-only params (`voice`, `ref_text`, `lang_code`, `max_tokens`) sent to Irodori are logged and ignored so OpenAI-compatible clients keep working; Irodori-only params sent to Qwen3, and `instruct` on an Irodori base variant, return `400`.
 - **Irodori has no built-in default voice:** unlike Qwen3's `voice` presets, omitting both `ref_audio` and `instruct` on an Irodori model would silently zero out the reference embedding and generate an unconditioned, undefined voice instead of erroring. `/v1/audio/speech` rejects this with `400` before `get_tts()` runs. Since `DEFAULT_TTS` is now `irodori-tts-v4.1-small-8bit`, a bare call with only `input` (no `model`, no `ref_audio`/`instruct`) now 400s — Qwen3-TTS clients must pass `model` explicitly if they rely on the old model-omitted default.
-- **Images:** the HTTP API is text-only. Qwen3-VL models are served as text embedders/rerankers.
+- **Images:** only `/v1/embeddings` with a `supports_images` model (`embeddinggemma-2`) accepts them, as `{"type":"image_url","image_url":{"url":"data:..."}}` or `{"type":"image","image":"<base64>"}`, mixed with strings in any order. Only base64 is decoded — URLs and paths are 400 (SSRF / local-file read on a 0.0.0.0 server). One forward per image: `<bos><boi>{<image>×n}<eoi><eos>` with n = `num_soft_tokens_per_image`. Qwen3-VL models remain text-only.
 - **Health:** `/health` returns `status`, `loaded_*_models` (4 lists) and `available_*` (3 lists). There is no `reranker_ready` field.
 
 ## Key Files
@@ -87,4 +90,4 @@ uv run uvicorn mlx_embed_rerank_server:app --host 0.0.0.0 --port 1235
 - `AUTO_STARTUP_SUMMARY.md`: launchd setup.
 - `TTS_ENGINE_DESIGN.md`: why `/v1/audio/speech` carries two engines, how their parameters are split, and what the tests pin down. **Read this before touching the TTS endpoint.**
 - `PLAN_STT_TTS_REVIEW.md`: pre-implementation design review for the audio endpoints (superseded in places by the shipped code).
-- `tests/`: pytest API integration suite — `test_health.py`, `test_embeddings.py`, `test_rerank.py`, `test_audio.py`, `test_errors.py`, shared fixtures in `conftest.py`, and all expected values in `data/test_cases.json` (update it whenever `AVAILABLE_*_MODELS` changes). Design rationale: `tests/TEST_DESIGN.md`. Markers: `vl` (auto-skipped without torch/torchvision), `audio` (slow; deselect with `-m "not audio"`).
+- `tests/`: pytest API integration suite — `test_health.py`, `test_embeddings.py`, `test_rerank.py`, `test_audio.py`, `test_errors.py`, shared fixtures in `conftest.py`, and all expected values in `data/test_cases.json` (update it whenever `AVAILABLE_*_MODELS` changes). Design rationale: `tests/TEST_DESIGN.md`. To test a second server next to the live one: start it with `EMBED_HEALTH_PORT=1246 uv run uvicorn mlx_embed_rerank_server:app --port 1245` and run pytest with `EMBED_BASE_URL=http://127.0.0.1:1245 EMBED_HEALTH_URL=http://127.0.0.1:1246`. Markers: `vl` (auto-skipped without torch/torchvision), `audio` (slow; deselect with `-m "not audio"`).

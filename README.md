@@ -8,7 +8,7 @@ It is designed to run independently from your LLM server (e.g., LM Studio, Ollam
 
 ### 🚀 Default Models
 The server uses the following models as defaults (used when no `model` is specified). The selection is based on the measurements in [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md):
-- **Embedding**: `bge-m3` (*bge-m3-mlx-fp16*)
+- **Embedding**: `embeddinggemma-2` (*embeddinggemma-2-bf16*, text + image)
 - **Reranker**: `qwen3-0.6b` (*Qwen3-Reranker-0.6B-mxfp8*)
 - **ASR (STT)**: `qwen3-asr-1.7b-8bit` (*Qwen3-ASR-1.7B-8bit*)
 - **TTS**: `irodori-tts-v4.1-small-8bit` (*Irodori-TTS-v4.1-Small-8bit*)
@@ -23,7 +23,8 @@ Models are **lazily loaded on the first request** (not at startup). After a heav
 - ✅ **Unified Process & Port**: Integrates Embedding, Reranking and Audio into a single FastAPI process (API port `1235`, dedicated health port `1236`).
 - ✅ **OpenAI-Compatible API**: `/v1/embeddings`, `/v1/audio/transcriptions` and `/v1/audio/speech` follow OpenAI's request/response shapes.
 - ✅ **Apple Silicon Native**: Powered by Apple's MLX library for GPU-accelerated inference on Mac hardware.
-- ✅ **Multiple Models per Task**: 5 embedding models, 2 rerankers and 5 audio models selectable per request.
+- ✅ **Multiple Models per Task**: 6 embedding models, 2 rerankers and 5 audio models selectable per request.
+- ✅ **Image Embeddings**: EmbeddingGemma 2 embeds images into the same 768-d space as text (no `torch` needed), plus Matryoshka `dimensions`.
 - ✅ **Multimodal Models**: Qwen3-VL Embedding/Reranker (2B) with `instruction` support (requires `torch` / `torchvision`, see [Requirements](#-requirements)).
 - ✅ **Audio Capabilities**: STT (`/v1/audio/transcriptions`) and TTS with voice cloning (`/v1/audio/speech`). Two TTS engines: Qwen3-TTS and the Japanese-specialised Irodori TTS.
 - ✅ **Smart Auto-Fallback**: Unloads heavy Qwen3-VL models after inactivity, clears the Metal cache and preloads the lightweight default models.
@@ -49,12 +50,12 @@ A dedicated health-check server also listens on `http://localhost:1236` (see [Su
 |:-------|:------------------------|:------------|
 | `GET`  | `/health`               | Health check, returning loaded and available models. |
 | `GET`  | `/v1/models`            | Lists all available models in OpenAI list format (for client connection checks / model pickers). |
-| `POST` | `/v1/embeddings`        | Generates **text** embeddings (OpenAI-compatible). |
+| `POST` | `/v1/embeddings`        | Generates text (and, for `embeddinggemma-2`, image) embeddings (OpenAI-compatible). |
 | `POST` | `/v1/rerank` (alias `/rerank`) | Re-ranks query and document pairs. |
 | `POST` | `/v1/audio/transcriptions` | Transcribes audio files to text (STT, OpenAI-compatible). |
 | `POST` | `/v1/audio/speech`      | Generates speech from text (TTS, OpenAI-compatible). |
 
-> **Note**: image input is not exposed through the HTTP API. Even the Qwen3-VL models are served as text-only embedding / reranking endpoints; `input` accepts a string or a list of strings.
+> **Note**: the only HTTP endpoint that accepts images is `/v1/embeddings` with `embeddinggemma-2`. The Qwen3-VL models are served as text-only embedding / reranking endpoints.
 
 ### `GET /health`
 
@@ -63,7 +64,7 @@ A dedicated health-check server also listens on `http://localhost:1236` (see [Su
   "status": "ok",
   "loaded_embed_models": [], "loaded_rerank_models": [],
   "loaded_asr_models": [], "loaded_tts_models": [],
-  "available_embed": ["gemma-3-300m", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
+  "available_embed": ["gemma-3-300m", "embeddinggemma-2", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
   "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
                       "irodori-tts-v4.1-small-8bit"]
@@ -88,12 +89,37 @@ Lists every model in `available_*` (loaded or not) in the OpenAI `list` shape. E
 
 | Field | Type | Default | Description |
 |:---|:---|:---|:---|
-| `input` | `string \| string[]` | – (required) | Text(s) to embed. |
-| `model` | `string` | `bge-m3` | Embedding model ID. |
-| `input_type` | `"query" \| "document"` | `"document"` | Selects the automatic prefix for `gemma-3-300m` and the default instruction for `qwen3-vl-embedding-2b`. |
-| `instruction` | `string` | `null` | **Used by `qwen3-vl-embedding-2b` only.** Ignored by every other embedding model. |
+| `input` | `string \| (string \| image object)[]` | – (required) | What to embed. Image objects are accepted by `embeddinggemma-2` only (see below). |
+| `model` | `string` | `embeddinggemma-2` | Embedding model ID. |
+| `input_type` | `"query" \| "document"` | `"document"` | Selects the task prompt for `gemma-3-300m` / `embeddinggemma-2`, the query instruction for `qwen3-0.6b-embed`, and the default instruction for `qwen3-vl-embedding-2b`. |
+| `instruction` | `string` | `null` | Used by `qwen3-0.6b-embed` (queries only) and `qwen3-vl-embedding-2b`. Ignored by the other models. |
+| `dimensions` | `int` | `null` | Matryoshka truncation + re-normalisation for `gemma-3-300m` / `embeddinggemma-2` / `qwen3-0.6b-embed`. `400` on other models or out of range. |
 
-**Output vectors**: all embedding models return the first token of `last_hidden_state` (CLS pooling), L2-normalized to unit length. This matches the BGE-M3 dense-embedding specification, which is why `bge-m3` is the default and the recommended choice for Japanese RAG — see [Model Selection](#-model-selection-guidance).
+**Output vectors**: every model returns L2-normalised vectors, pooled the way the model was trained:
+
+| Model | Pooling | Prompting |
+|:---|:---|:---|
+| `bge-m3` / `bge-m3-8bit` | first token (CLS) | none (`input_type` ignored) |
+| `gemma-3-300m` | mean pooling → 2 dense layers | query `task: search result \| query: ` / document `title: none \| text: ` |
+| `embeddinggemma-2` | mean pooling | same prompts as `gemma-3-300m` (none for images) |
+| `qwen3-0.6b-embed` | last token (`<\|endoftext\|>`) | queries only: `Instruct: {instruction}\nQuery:` (web-search instruction by default) |
+| `qwen3-vl-embedding-2b` | delegated to `model.process()` | `instruction` |
+
+> Before 2026-11 the server took the CLS token for every model, which left `gemma-3-300m` and `qwen3-0.6b-embed` close to useless for retrieval (JMTEB-subset nDCG@10 of 3–18; see [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §9). **Re-index anything built with those two models before that fix.**
+
+**Image input (`embeddinggemma-2` only)**: mix image objects into the `input` list. Vectors come back in input order and share the text space, so text→image search works.
+
+```json
+{"model": "embeddinggemma-2", "input_type": "query", "input": [
+  "a person holding a red umbrella",
+  {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,/9j/4AAQ..."}},
+  {"type": "image", "image": "iVBORw0KGgo..."}
+]}
+```
+
+- Only **base64 data URIs or raw base64** are accepted. URLs and file paths are rejected with `400`, since they would make the server fetch remote content or read local files.
+- Images are processed one at a time (~140 ms each); text is batched 16 at a time.
+- Text–image cosine is ~0.7 for matching pairs and ~0.5 for unrelated ones: rank with top-k rather than thresholding.
 
 ### `POST /v1/rerank` (alias `POST /rerank`)
 
@@ -111,8 +137,8 @@ The response contains `{"model": ..., "results": [{"index": ..., "relevance_scor
 
 | Situation | Endpoint | Status |
 |:---|:---|:---|
-| Unknown model name | `/v1/rerank`, `/v1/audio/*` | `400` with a short detail message |
-| Unknown model name | `/v1/embeddings` | `500` — `compute_embeddings` runs inside a catch-all handler that wraps every exception, including the internal 400 |
+| Unknown model name | all endpoints | `400` with a short detail message |
+| Image on a text-only model; URL / path / broken base64 image; invalid `dimensions` | `/v1/embeddings` | `400`, checked before any model is loaded |
 | Inference failure | `/v1/embeddings` | `500` with the full Python traceback in `detail` (intended for local debugging; do not expose the port publicly) |
 | Inference failure | `/v1/rerank` | `500` `Internal Server Error` (no traceback; check the server log) |
 
@@ -124,7 +150,7 @@ To optimize unified memory on Mac hardware, heavy multimodal Qwen3-VL models (`q
 
 - **Timer Granularity**: a repeating 30-second timer checks the idle time, so the actual release happens between 30 and 60 seconds after the last request.
 - **Paired Unload**: If either model becomes inactive, both Qwen3-VL models are unloaded together to prevent resource leaks.
-- **Default Preloading**: Simultaneously preloads the lightweight default models (`bge-m3` and `qwen3-0.6b`) to ensure instant availability for standard queries.
+- **Default Preloading**: Simultaneously preloads the lightweight default models (`embeddinggemma-2` and `qwen3-0.6b`) to ensure instant availability for standard queries.
 - **Immediate GPU Memory Release**: `mx.metal.clear_cache()` is called at the end of the fallback (after unloading and preloading) to free unified memory.
 - **Audio models are exempt**: ASR/TTS models stay resident once loaded — the 0.6B/1.7B class is small enough that unloading was judged unnecessary.
 
@@ -133,7 +159,7 @@ To optimize unified memory on Mac hardware, heavy multimodal Qwen3-VL models (`q
 ```mermaid
 stateDiagram-v2
     [*] --> Empty : Server Startup (no models loaded)
-    Empty --> DefaultLoaded : First default request (lazy load bge-m3 / qwen3-0.6b)
+    Empty --> DefaultLoaded : First default request (lazy load embeddinggemma-2 / qwen3-0.6b)
     Empty --> Qwen3VL_Loaded : First request (qwen3-vl requested, lazy load)
     DefaultLoaded --> Qwen3VL_Loaded : /v1/embeddings or /v1/rerank (qwen3-vl requested)
     Qwen3VL_Loaded --> Qwen3VL_Loaded : Request received within 30s (last_used updated)
@@ -148,7 +174,7 @@ stateDiagram-v2
 
     state Fallback {
         [*] --> Unload_Qwen3VL : Paired Unload
-        Unload_Qwen3VL --> Load_Default : Preload bge-m3 / qwen3-0.6b
+        Unload_Qwen3VL --> Load_Default : Preload embeddinggemma-2 / qwen3-0.6b
         Load_Default --> [*] : mx.metal.clear_cache()
     }
 ```
@@ -184,7 +210,7 @@ sequenceDiagram
 
     MM->>MM: [Fallback] Unload 'qwen3-vl-embedding-2b' (paired unload)
     MM->>MM: [Fallback] Unload 'qwen3-vl-reranker-2b' (paired unload)
-    MM->>MM: [Fallback] Preload default embed 'bge-m3'
+    MM->>MM: [Fallback] Preload default embed 'embeddinggemma-2'
     MM->>MM: [Fallback] Preload default rerank 'qwen3-0.6b'
     MM->>GPU: mx.metal.clear_cache()
 ```
@@ -195,13 +221,14 @@ sequenceDiagram
 
 You can select a model by passing the `model` parameter in your API request. If omitted, the default model will be loaded.
 
-### Embedding (Default: `bge-m3`)
+### Embedding (Default: `embeddinggemma-2`)
 | Model ID | Hugging Face Model | Description / Strengths |
 | :--- | :--- | :--- |
-| `gemma-3-300m` | `embeddinggemma-300m-bf16` | Gemma 3, fastest option, automatic `query`/`document` prefix handling. |
-| `bge-m3` | `bge-m3-mlx-fp16` | Robust multilingual model, **recommended default** for Japanese RAG. |
+| `embeddinggemma-2` | `embeddinggemma-2-bf16` | **Default.** 768-d, embeds text and images into one space, automatic prompts, Matryoshka. Loaded with `mlx-vlm`. |
+| `gemma-3-300m` | `embeddinggemma-300m-bf16` | EmbeddingGemma 300M, 768-d. **Best and fastest for text-only retrieval.** Matryoshka. |
+| `bge-m3` | `bge-m3-mlx-fp16` | 1024-d robust multilingual model. Former default, kept for existing indexes. |
 | `bge-m3-8bit` | `bge-m3-mlx-8bit` | BGE-M3 8-bit quantized, memory-efficient multilingual model. |
-| `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 embedding (text only). |
+| `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 embedding (text only, 1024-d), instruction on queries, Matryoshka. |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | 2B multimodal backbone, supports `instruction`; highest recall, slowest. |
 
 ### Reranker (Default: `qwen3-0.6b`)
@@ -235,16 +262,18 @@ The Irodori fp16 variant (`irodori-tts-v4.1-small-fp16`) was removed: §7/§8 me
 
 ## 🎯 Model Selection Guidance
 
-Measured on 1000 Japanese documents indexed in ChromaDB ([BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §2–§4):
+Measured on Japanese JMTEB subsets (300 queries each, 10k-document corpora; [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §9). nDCG@10, Spearman for JSTS:
 
-| Model | 1000 docs (cached) | Per document | Retrieval note |
-| :--- | ---: | ---: | :--- |
-| `gemma-3-300m` | 2.93 s | ~2.9 ms | Fastest, but the target document was sometimes missing from the top-100 |
-| `bge-m3` | 6.10 s | ~6.1 ms | **Recall 100%** in the same test — the default |
-| `qwen3-0.6b-embed` | 9.42 s | ~9.4 ms | Same top-100 misses as `gemma-3-300m` |
-| `qwen3-vl-embedding-2b` | 37.74 s | ~37.7 ms | Recall 100%, heaviest |
+| Model | JaGovFAQs | JAQKET | MIRACL-ja | JSTS | ms / doc | Dim |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gemma-3-300m` | **80.48** | **83.00** | **99.22** | 84.93 | **4.0** | 768 |
+| `embeddinggemma-2` | 75.63 | 80.24 | 99.04 | **85.81** | 4.7 | 768 |
+| `bge-m3` | 78.85 | 78.68 | 98.99 | 80.23 | 11.0 | 1024 |
+| `qwen3-0.6b-embed` | 74.60 | 68.74 | 98.30 | 81.16 | 21.3 | 1024 |
 
-**Rule of thumb**: use `bge-m3` for retrieval quality (or `bge-m3-8bit` when memory is tight), then rerank the top 100 with `qwen3-0.6b` (~2 s for 100 documents). Reserve `gemma-3-300m` for latency-critical, precision-tolerant workloads, and Qwen3-VL for offline high-accuracy evaluation.
+Images (`embeddinggemma-2`, COCO 1k with Japanese captions): text→image R@1 72.2 / R@5 92.9, image→text R@1 84.3.
+
+**Rule of thumb**: use `embeddinggemma-2` (the default) when images are part of the corpus, `gemma-3-300m` for the best and fastest text-only retrieval, and rerank the top 100 with `qwen3-0.6b` (~2 s for 100 documents). Keep passing `model: "bge-m3"` for indexes built with it — changing the embedding model always means re-indexing.
 
 ---
 
@@ -252,7 +281,7 @@ Measured on 1000 Japanese documents indexed in ChromaDB ([BENCHMARK_REPORT.md](B
 
 | Task | Model | Measurement |
 | :--- | :--- | :--- |
-| Embedding | `bge-m3` | 1000 docs in 6.10 s (cached) |
+| Embedding | `embeddinggemma-2` | 1000 docs (172 chars avg) in 4.7 s (warm); ~140 ms per image |
 | Rerank | `qwen3-0.6b` | top-100 in ~2.0 s (~20 ms/doc) |
 | STT | `qwen3-asr-1.7b-8bit` | 32.9 s audio in 0.75 s (43.9x realtime) |
 | TTS | `qwen3-tts-0.6b-base-8bit` | 2.89 s average generation (4.4x realtime); audio length varies (std≈0.54) |
@@ -310,7 +339,7 @@ embed_reranker/
   ```bash
   uv pip install torch torchvision
   ```
-  Every other model (bge-m3, gemma, qwen3 embed/rerank, ASR, TTS) runs without them.
+  Every other model (bge-m3, gemma-3-300m, embeddinggemma-2 including images, qwen3 embed/rerank, ASR, TTS) runs without them.
 
 ---
 
@@ -549,10 +578,10 @@ Everything is an **API integration test** against the running server — nothing
 | File | Covers |
 | :--- | :--- |
 | `tests/test_health.py` | `/health` payload, defaults, and the port-1236 supervisor probe |
-| `tests/test_embeddings.py` | All 5 models: dimensions, unit norm, OpenAI envelope, default model, string vs list input, determinism, `input_type` prefix behaviour, `instruction` being VL-only, semantic sanity |
+| `tests/test_embeddings.py` | All 6 models: dimensions, unit norm, OpenAI envelope, default model, string vs list input, determinism, `input_type` prompts, where `instruction` applies, **4-query retrieval sanity (pooling regression guard)**, Matryoshka `dimensions`, image inputs (single, mixed-order, colour/caption match) |
 | `tests/test_rerank.py` | Both rerankers: response shape, descending order, expected winner, score range, `/rerank` alias, `top_k` (default / limit / `0` = all / oversized), empty documents, determinism, `instruction` ignored by `qwen3-0.6b` |
 | `tests/test_audio.py` | STT JSON shape, `/tmp` cleanup, TTS content-type / RIFF header / defaults, audio models staying resident |
-| `tests/test_errors.py` | The asymmetric error codes (embeddings 500 vs rerank/audio 400), wrong model type, 422 validation, 404 |
+| `tests/test_errors.py` | Unknown model → 400 on every endpoint, image / `dimensions` input errors (URLs, paths and broken base64 rejected), wrong model type, 422 validation, 404 |
 
 Markers (registered in `pyproject.toml`, `--strict-markers` is on):
 
@@ -571,7 +600,7 @@ Notes:
 
 ## 💡 RAG Architecture Example
 
-1. **Embed**: Vectorize your documents using `/v1/embeddings` with `bge-m3`.
+1. **Embed**: Vectorize your documents using `/v1/embeddings` with `embeddinggemma-2` (or `bge-m3` for an existing bge-m3 index).
 2. **Retrieve**: Fetch the top 50–100 candidate documents from your vector database.
 3. **Rerank**: Use `/v1/rerank` with `qwen3-0.6b` to narrow them down to the top 10–20 highest-quality context documents.
 4. **Generate**: Pass the ranked documents as context to your LLM.

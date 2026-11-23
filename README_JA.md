@@ -12,7 +12,7 @@ RAG（Retrieval-Augmented Generation）用の **Embedding / Rerank / 音声エ�
 ### 🚀 デフォルトモデル
 `model` パラメータを省略した場合に使われるモデルです。選定根拠は [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) の実測結果に基づきます。
 
-- **Embedding**: `bge-m3`（*bge-m3-mlx-fp16*）
+- **Embedding**: `embeddinggemma-2`（*embeddinggemma-2-bf16*、テキスト＋画像）
 - **Reranker**: `qwen3-0.6b`（*Qwen3-Reranker-0.6B-mxfp8*）
 - **ASR（STT）**: `qwen3-asr-1.7b-8bit`（*Qwen3-ASR-1.7B-8bit*）
 - **TTS**: `irodori-tts-v4.1-small-8bit`（*Irodori-TTS-v4.1-Small-8bit*）
@@ -26,7 +26,8 @@ RAG（Retrieval-Augmented Generation）用の **Embedding / Rerank / 音声エ�
 - ✅ Embedding / Rerank / 音声を **1 プロセス**で提供（API ポート `1235`、ヘルス専用ポート `1236`）
 - ✅ OpenAI 互換 API（`/v1/embeddings`, `/v1/audio/transcriptions`, `/v1/audio/speech`）
 - ✅ Apple Silicon ネイティブの **MLX** による GPU 推論
-- ✅ Embedding 5 モデル / Reranker 2 モデル / 音声 5 モデルをリクエスト単位で切り替え
+- ✅ Embedding 6 モデル / Reranker 2 モデル / 音声 5 モデルをリクエスト単位で切り替え
+- ✅ **EmbeddingGemma 2 による画像埋め込み**（テキストと同じ 768 次元空間。`torch` 不要）と Matryoshka の `dimensions` 指定
 - ✅ Qwen3-VL Embedding / Reranker 2B（`instruction` 対応。`torch` / `torchvision` が別途必要 → [動作環境](#-動作環境)）
 - ✅ STT（`/v1/audio/transcriptions`）と、ボイスクローン対応 TTS（`/v1/audio/speech`）。TTS は Qwen3-TTS と日本語特化の Irodori TTS の 2 エンジン
 - ✅ Qwen3-VL の自動アンロード + デフォルトモデルのプリロード（メモリ最適化）
@@ -54,12 +55,12 @@ http://localhost:1235
 |------|--------------------------|------|
 | GET  | `/health`               | ロード済み／利用可能モデルを含むヘルスチェック |
 | GET  | `/v1/models`            | 利用可能な全モデルの一覧（OpenAI 形式。クライアントの接続確認・モデル選択用） |
-| POST | `/v1/embeddings`        | **テキスト**の埋め込み生成（OpenAI 互換） |
+| POST | `/v1/embeddings`        | テキスト（`embeddinggemma-2` は画像も）の埋め込み生成（OpenAI 互換） |
 | POST | `/v1/rerank`（別名 `/rerank`） | クエリと文書群のリランク |
 | POST | `/v1/audio/transcriptions` | 音声ファイルの文字起こし（STT、OpenAI 互換） |
 | POST | `/v1/audio/speech`      | テキストからの音声合成（TTS、OpenAI 互換） |
 
-> **注意**: 画像入力は HTTP API では公開していません。Qwen3-VL 系モデルもテキスト専用の Embedding / Rerank として提供されます（`input` は文字列または文字列配列のみ）。
+> **注意**: HTTP API で画像を受け付けるのは `embeddinggemma-2` の `/v1/embeddings` だけです。Qwen3-VL 系モデルはテキスト専用の Embedding / Rerank として提供されます。
 
 ### `GET /health`
 
@@ -68,7 +69,7 @@ http://localhost:1235
   "status": "ok",
   "loaded_embed_models": [], "loaded_rerank_models": [],
   "loaded_asr_models": [], "loaded_tts_models": [],
-  "available_embed": ["gemma-3-300m", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
+  "available_embed": ["gemma-3-300m", "embeddinggemma-2", "bge-m3", "bge-m3-8bit", "qwen3-vl-embedding-2b", "qwen3-0.6b-embed"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
   "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
                       "irodori-tts-v4.1-small-8bit"]
@@ -93,12 +94,37 @@ http://localhost:1235
 
 | フィールド | 型 | デフォルト | 説明 |
 |:---|:---|:---|:---|
-| `input` | `string \| string[]` | 必須 | 埋め込み対象のテキスト |
-| `model` | `string` | `bge-m3` | Embedding モデル ID |
-| `input_type` | `"query" \| "document"` | `"document"` | `gemma-3-300m` の自動プレフィックス、`qwen3-vl-embedding-2b` の既定 instruction を切り替え |
-| `instruction` | `string` | `null` | **`qwen3-vl-embedding-2b` 専用**。他の Embedding モデルでは無視されます |
+| `input` | `string \| (string \| 画像オブジェクト)[]` | 必須 | 埋め込み対象。画像オブジェクトは `embeddinggemma-2` のみ（下記） |
+| `model` | `string` | `embeddinggemma-2` | Embedding モデル ID |
+| `input_type` | `"query" \| "document"` | `"document"` | `gemma-3-300m` / `embeddinggemma-2` のタスクプロンプト、`qwen3-0.6b-embed` のクエリ指示文、`qwen3-vl-embedding-2b` の既定 instruction を切り替え |
+| `instruction` | `string` | `null` | `qwen3-0.6b-embed`（`input_type: "query"` のときのみ）と `qwen3-vl-embedding-2b` が使用。他のモデルでは無視されます |
+| `dimensions` | `int` | `null` | Matryoshka 対応モデル（`gemma-3-300m` / `embeddinggemma-2` / `qwen3-0.6b-embed`）で先頭 N 次元に切り詰めて再正規化。非対応モデルや範囲外は `400` |
 
-**出力ベクトルの仕様**: すべての Embedding モデルで `last_hidden_state` の先頭トークン（CLS プーリング）を取り出し、L2 正規化した単位ベクトルを返します。これは BGE-M3 の dense embedding の仕様に一致しており、`bge-m3` をデフォルトかつ日本語 RAG の推奨としている理由です（→ [モデル選定の指針](#-モデル選定の指針)）。
+**出力ベクトルの仕様**: どのモデルも L2 正規化した単位ベクトルを返します。プーリングは各モデルの公式仕様に合わせています。
+
+| モデル | プーリング | 前処理 |
+|:---|:---|:---|
+| `bge-m3` / `bge-m3-8bit` | 先頭トークン（CLS） | なし（`input_type` は無視） |
+| `gemma-3-300m` | mean pooling → dense 2 層 | query: `task: search result \| query: ` / document: `title: none \| text: ` |
+| `embeddinggemma-2` | mean pooling | `gemma-3-300m` と同じタスクプロンプト（画像にはプロンプトなし） |
+| `qwen3-0.6b-embed` | 末尾トークン（`<\|endoftext\|>`） | query のみ `Instruct: {instruction}\nQuery:`（既定は web 検索用の指示文）、document はなし |
+| `qwen3-vl-embedding-2b` | `model.process()` に委譲 | `instruction` |
+
+> 2026-11 以前は全モデルで CLS を取っていたため、`gemma-3-300m` と `qwen3-0.6b-embed` は検索にほぼ使えない品質でした（JMTEB サブセットの nDCG@10 が 3〜18。→ [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §9）。**それ以前にこの 2 モデルで作ったインデックスは作り直してください**。
+
+**画像入力（`embeddinggemma-2` のみ）**: `input` の配列に画像オブジェクトを混ぜられます。返るベクトルは入力と同じ順序で、テキストと同じ空間に入ります（テキスト→画像検索が可能）。
+
+```json
+{"model": "embeddinggemma-2", "input_type": "query", "input": [
+  "赤い傘をさした人",
+  {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,/9j/4AAQ..."}},
+  {"type": "image", "image": "iVBORw0KGgo..."}
+]}
+```
+
+- 受け付けるのは **base64 の data URI か生の base64 だけ**です。URL やファイルパスは、サーバーに外部取得やローカルファイルの読み出しをさせることになるため `400` で拒否します。
+- 画像は 1 枚ずつ処理します（約 140 ms/枚）。テキストは 16 件ずつのバッチです。
+- テキストと画像の cosine は、正しい組でも 0.7 前後、無関係な組でも 0.5 前後です。しきい値での足切りには向かないので、上位 k 件で使ってください。
 
 ### `POST /v1/rerank`（別名 `POST /rerank`）
 
@@ -116,8 +142,8 @@ http://localhost:1235
 
 | 状況 | エンドポイント | ステータス |
 |:---|:---|:---|
-| 未対応のモデル名 | `/v1/rerank`, `/v1/audio/*` | `400`（短い detail メッセージ） |
-| 未対応のモデル名 | `/v1/embeddings` | `500`（`compute_embeddings` を包む catch-all ハンドラが内部の 400 ごと 500 に変換するため） |
+| 未対応のモデル名 | 全エンドポイント | `400`（短い detail メッセージ） |
+| 画像非対応モデルへの画像、URL / パス / 壊れた base64 の画像、不正な `dimensions` | `/v1/embeddings` | `400`（モデルをロードする前に検証） |
 | 推論の失敗 | `/v1/embeddings` | `500` + `detail` に Python トレースバック全文（ローカルデバッグ用途。ポートを外部公開しないこと） |
 | 推論の失敗 | `/v1/rerank` | `500 Internal Server Error`（トレースバックなし。サーバーログを参照） |
 
@@ -129,7 +155,7 @@ Mac のユニファイドメモリを節約するため、重い Qwen3-VL 系モ
 
 - **タイマー粒度**: 判定タイマーも 30 秒周期のため、実際の解放は最終リクエストから 30〜60 秒後になります。
 - **ペアアンロード**: どちらか一方がタイムアウトしたら、Qwen3-VL の embed / rerank を**両方まとめて解放**します。
-- **デフォルトのプリロード**: 同時に軽量なデフォルトモデル（`bge-m3` / `qwen3-0.6b`）をロードし、通常のリクエストに即応できる状態にします。
+- **デフォルトのプリロード**: 同時に軽量なデフォルトモデル（`embeddinggemma-2` / `qwen3-0.6b`）をロードし、通常のリクエストに即応できる状態にします。
 - **GPU メモリの即時解放**: アンロードとプリロードを終えた最後に `mx.metal.clear_cache()` を実行します。
 - **音声モデルは対象外**: ASR / TTS モデルは一度ロードすると常駐します（0.6B / 1.7B 級は軽量なためアンロード不要と判断）。
 
@@ -138,7 +164,7 @@ Mac のユニファイドメモリを節約するため、重い Qwen3-VL 系モ
 ```mermaid
 stateDiagram-v2
     [*] --> Empty : サーバー起動（モデル未ロード）
-    Empty --> DefaultLoaded : 初回リクエスト（bge-m3 / qwen3-0.6b を遅延ロード）
+    Empty --> DefaultLoaded : 初回リクエスト（embeddinggemma-2 / qwen3-0.6b を遅延ロード）
     Empty --> Qwen3VL_Loaded : 初回リクエストで qwen3-vl 指定（遅延ロード）
     DefaultLoaded --> Qwen3VL_Loaded : /v1/embeddings または /v1/rerank で qwen3-vl 指定
     Qwen3VL_Loaded --> Qwen3VL_Loaded : 30秒以内にリクエスト（last_used 更新）
@@ -153,7 +179,7 @@ stateDiagram-v2
 
     state Fallback {
         [*] --> Unload_Qwen3VL : ペアアンロード
-        Unload_Qwen3VL --> Load_Default : bge-m3 / qwen3-0.6b をプリロード
+        Unload_Qwen3VL --> Load_Default : embeddinggemma-2 / qwen3-0.6b をプリロード
         Load_Default --> [*] : mx.metal.clear_cache()
     }
 ```
@@ -189,7 +215,7 @@ sequenceDiagram
 
     MM->>MM: [Fallback] Unload embed 'qwen3-vl-embedding-2b' (paired unload)
     MM->>MM: [Fallback] Unload rerank 'qwen3-vl-reranker-2b' (paired unload)
-    MM->>MM: [Fallback] Preload default embed 'bge-m3'
+    MM->>MM: [Fallback] Preload default embed 'embeddinggemma-2'
     MM->>MM: [Fallback] Preload default rerank 'qwen3-0.6b'
     MM->>GPU: mx.metal.clear_cache()
 ```
@@ -199,9 +225,9 @@ sequenceDiagram
 | 状態 | ロード済み Embed | ロード済み Rerank | メモリ使用量 | 次のリクエスト |
 |------|-----------------|------------------|-------------|--------------|
 | **起動直後（未ロード）** | なし | なし | 最小 | 初回は遅延ロード |
-| **デフォルト待機** | `bge-m3` | `qwen3-0.6b` | 低（軽量） | 即座に応答 |
+| **デフォルト待機** | `embeddinggemma-2` | `qwen3-0.6b` | 低（軽量） | 即座に応答 |
 | **Qwen3-VL 使用中** | `qwen3-vl-embedding-2b` | `qwen3-vl-reranker-2b` | 高（重い） | 即座に応答 |
-| **Qwen3-VL → フォールバック** | `bge-m3` | `qwen3-0.6b` | 低（解放済） | 即座に応答 |
+| **Qwen3-VL → フォールバック** | `embeddinggemma-2` | `qwen3-0.6b` | 低（解放済） | 即座に応答 |
 
 ※ ASR / TTS モデルは上表の遷移対象外で、一度ロードすると常駐します。
 
@@ -211,14 +237,15 @@ sequenceDiagram
 
 リクエスト時の `model` パラメータで切り替え可能です。未指定時はデフォルトモデルが使用されます。
 
-### Embedding (デフォルト: `bge-m3`)
+### Embedding (デフォルト: `embeddinggemma-2`)
 
 | モデル ID | Hugging Face モデル | 特徴 |
 | :--- | :--- | :--- |
-| `gemma-3-300m` | `embeddinggemma-300m-bf16` | 最速。`input_type` に応じたプレフィックスを自動付与 |
-| `bge-m3` | `bge-m3-mlx-fp16` | 多言語で堅牢。**日本語 RAG の推奨・デフォルト** |
+| `embeddinggemma-2` | `embeddinggemma-2-bf16` | **デフォルト**。768 次元。テキストと画像を同じ空間に埋め込む。`input_type` でプロンプト自動付与。Matryoshka 対応。`mlx-vlm` でロード |
+| `gemma-3-300m` | `embeddinggemma-300m-bf16` | EmbeddingGemma 300M。768 次元。**テキスト検索の精度は最良かつ最速**。Matryoshka 対応 |
+| `bge-m3` | `bge-m3-mlx-fp16` | 1024 次元。多言語で堅牢。旧デフォルト（既存インデックス用に残置） |
 | `bge-m3-8bit` | `bge-m3-mlx-8bit` | BGE-M3 の 8bit 量子化版。省メモリ |
-| `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 Embedding（テキスト専用） |
+| `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 Embedding（テキスト専用、1024 次元）。クエリに指示文を付与。Matryoshka 対応 |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | 2B マルチモーダル。`instruction` 対応。最高精度・最重量 |
 
 ### Reranker (デフォルト: `qwen3-0.6b`)
@@ -254,16 +281,18 @@ Irodori の fp16 版（`irodori-tts-v4.1-small-fp16`）は §7/§8 の計測で�
 
 ## 🎯 モデル選定の指針
 
-ChromaDB に格納した日本語 1000 件での実測（[BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §2〜§4）:
+JMTEB の日本語サブセット（各 300 クエリ、コーパス 1 万件）での実測（[BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) §9）。数値は nDCG@10、JSTS のみ Spearman:
 
-| モデル | 1000件（キャッシュ後） | 1件あたり | 検索精度の所見 |
-| :--- | ---: | ---: | :--- |
-| `gemma-3-300m` | 2.93 秒 | 約 2.9 ms | 最速。正解文書が Top100 に入らないケースあり |
-| `bge-m3` | 6.10 秒 | 約 6.1 ms | 同条件で **Recall 100%**。デフォルト |
-| `qwen3-0.6b-embed` | 9.42 秒 | 約 9.4 ms | `gemma-3-300m` と同様に取りこぼしあり |
-| `qwen3-vl-embedding-2b` | 37.74 秒 | 約 37.7 ms | Recall 100%。最重量 |
+| モデル | JaGovFAQs | JAQKET | MIRACL-ja | JSTS | 速度（ms/件） | 次元 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gemma-3-300m` | **80.48** | **83.00** | **99.22** | 84.93 | **4.0** | 768 |
+| `embeddinggemma-2` | 75.63 | 80.24 | 99.04 | **85.81** | 4.7 | 768 |
+| `bge-m3` | 78.85 | 78.68 | 98.99 | 80.23 | 11.0 | 1024 |
+| `qwen3-0.6b-embed` | 74.60 | 68.74 | 98.30 | 81.16 | 21.3 | 1024 |
 
-**基本方針**: 検索品質重視なら `bge-m3`（メモリが厳しければ `bge-m3-8bit`）で Embedding し、Top100 を `qwen3-0.6b` でリランク（100 件で約 2 秒）。`gemma-3-300m` は低レイテンシ優先かつ取りこぼしを許容できる用途、Qwen3-VL はオフラインの高精度評価向けです。
+画像（`embeddinggemma-2`、COCO 1k・日本語キャプション）: テキスト→画像 R@1 72.2 / R@5 92.9、画像→テキスト R@1 84.3。
+
+**基本方針**: 画像を混ぜて検索するなら `embeddinggemma-2`（デフォルト）。テキストだけなら `gemma-3-300m` が最も精度が高く速い選択肢です。どちらも Top100 を `qwen3-0.6b` でリランク（100 件で約 2 秒）すると上位の精度が上がります。`bge-m3` は、bge-m3 で作った既存のインデックスを使い続ける場合に `model` を明示して使ってください（埋め込みモデルを変えたらインデックスは作り直しが必要です）。
 
 ---
 
@@ -271,7 +300,7 @@ ChromaDB に格納した日本語 1000 件での実測（[BENCHMARK_REPORT.md](B
 
 | タスク | モデル | 実測値 |
 | :--- | :--- | :--- |
-| Embedding | `bge-m3` | 1000 件を 6.10 秒（キャッシュ後） |
+| Embedding | `embeddinggemma-2` | 1000 件（平均 172 字）を 4.7 秒（ウォーム時）。画像は約 140 ms/枚 |
 | Rerank | `qwen3-0.6b` | Top100 を約 2.0 秒（約 20 ms/件） |
 | STT | `qwen3-asr-1.7b-8bit` | 32.9 秒の音声を 0.75 秒（43.9x リアルタイム） |
 | TTS | `qwen3-tts-0.6b-base-8bit` | 平均生成 2.89 秒（4.4x リアルタイム）。音声長は std≈0.54 でばらつく |
@@ -332,7 +361,7 @@ embed_reranker/
   uv pip install torch torchvision
   ```
 
-  それ以外のモデル（bge-m3 / gemma / qwen3 embed・rerank / ASR / TTS）は torch なしで動作します。
+  それ以外のモデル（bge-m3 / gemma-3-300m / embeddinggemma-2（画像含む） / qwen3 embed・rerank / ASR / TTS）は torch なしで動作します。
 
 ---
 
@@ -583,10 +612,10 @@ uv run pytest tests/
 | ファイル | 検証内容 |
 | :--- | :--- |
 | `tests/test_health.py` | `/health` のペイロード構造・デフォルトモデルの実在・ポート 1236 の監視プローブ |
-| `tests/test_embeddings.py` | 全 5 モデルの次元数・単位ベクトル性・OpenAI 互換構造・デフォルトモデル・文字列/配列入力の等価性・決定性・`input_type` のプレフィックス挙動・`instruction` が VL 専用であること・意味的健全性 |
+| `tests/test_embeddings.py` | 全 6 モデルの次元数・単位ベクトル性・OpenAI 互換構造・デフォルトモデル・文字列/配列入力の等価性・決定性・`input_type` のプロンプト挙動・`instruction` の有効/無視・**4 クエリ×4 文書の検索健全性（プーリング回帰の検知）**・Matryoshka の `dimensions`・画像入力（単体・テキスト混在の順序・色とキャプションの対応） |
 | `tests/test_rerank.py` | 両 Reranker のレスポンス構造・降順・期待 1 位・スコア範囲・`/rerank` エイリアス・`top_k`（既定/切り詰め/`0`=全件/超過）・空配列・決定性・`qwen3-0.6b` が `instruction` を無視すること |
 | `tests/test_audio.py` | STT の JSON 構造・`/tmp` 一時ファイルの後始末・TTS の Content-Type と RIFF ヘッダ・デフォルトモデル・音声モデルが常駐すること |
-| `tests/test_errors.py` | 非対称なエラーコード（embeddings は 500 / rerank・音声は 400）・種別違いモデル・422 バリデーション・404 |
+| `tests/test_errors.py` | 未対応モデルの 400（全エンドポイント）・画像/`dimensions` の入力エラー（URL・パス・壊れた base64 の拒否を含む）・種別違いモデル・422 バリデーション・404 |
 
 マーカー（`pyproject.toml` に登録済み、`--strict-markers` 有効）:
 
@@ -606,7 +635,7 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 
 ## 💡 RAG 構成例
 
-1. **Embed**: `/v1/embeddings`（`bge-m3`）で文書をベクトル化
+1. **Embed**: `/v1/embeddings`（`embeddinggemma-2`、既存の bge-m3 インデックスなら `bge-m3`）で文書をベクトル化
 2. **Retrieve**: ベクトル DB から上位 50〜100 件を取得
 3. **Rerank**: `/v1/rerank`（`qwen3-0.6b`）で上位 10〜20 件に絞り込み
 4. **Generate**: 絞り込んだ文書を LLM のコンテキストに渡す
@@ -630,6 +659,18 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-11-24 — 埋め込みプーリングの修正、`embeddinggemma-2` の追加とデフォルト化
+
+- **不具合修正**: `compute_embeddings` が全モデルで `last_hidden_state` の先頭トークン（CLS）を取っていた。BGE-M3 には正しいが、`gemma-3-300m`（本来は mean pooling → dense）と `qwen3-0.6b-embed`（本来は末尾トークン）では検索がほぼ機能していなかった（JMTEB サブセットの nDCG@10 が 3〜18、正しい方式では 69〜99）。モデル種別ごとに公式のプーリングを使うよう修正。**この 2 モデルで作った既存インデックスは作り直しが必要**
+- `qwen3-0.6b-embed` の種別を `qwen3_embed` に変更し、クエリに `Instruct: ...\nQuery:` を付与（`instruction` で上書き可）
+- `embeddinggemma-2` を追加（`mlx-vlm` @ `3d87e88` でロード、`torch` 不要）。`input` に画像オブジェクト（base64 の data URI）を混ぜられる
+- `DEFAULT_EMBED` を `bge-m3` から `embeddinggemma-2` に変更。`model` を省略していたクライアントは 1024 次元から 768 次元に変わるため、bge-m3 のインデックスを使い続ける場合は `model: "bge-m3"` を明示すること
+- `dimensions`（Matryoshka）を追加
+- `/v1/embeddings` の未対応モデル名は `500` ではなく `400` を返すように変更（他のエンドポイントと統一）
+- 依存更新: `mlx-vlm` を追加。`mlx` 0.31.2 → 0.32.4、`mlx-audio` 0.5.1 → 0.6.7
+- 試験用に `EMBED_HEALTH_PORT`（サーバー）と `EMBED_BASE_URL` / `EMBED_HEALTH_URL`（テスト）で接続先を変更できるようにした
+- 回帰テストを追加: 4 クエリ×4 文書で各正解が 1 位になること（旧 CLS 方式は `gemma-3-300m` / `qwen3-0.6b-embed` とも失敗する）
 
 ### 2026-09-06 — Irodori fp16 の削除
 
