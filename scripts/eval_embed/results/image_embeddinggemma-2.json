@@ -1,0 +1,104 @@
+{
+  "n_images": 997,
+  "n_captions_per_lang": 4985,
+  "load_sec": 3.4,
+  "speed": {
+    "ms_per_image": 137.1
+  },
+  "peak_mem_gb": 2.41,
+  "retrieval": {
+    "ja/img_bos/cap_query": {
+      "t2i_R@1": 72.24,
+      "i2t_R@1": 84.25,
+      "t2i_R@5": 92.88,
+      "i2t_R@5": 98.29,
+      "t2i_R@10": 97.05,
+      "i2t_R@10": 99.5,
+      "rsum": 544.21,
+      "cos_matched": 0.7126,
+      "cos_unmatched": 0.5378
+    },
+    "ja/img_bos/cap_none": {
+      "t2i_R@1": 72.2,
+      "i2t_R@1": 83.35,
+      "t2i_R@5": 92.6,
+      "i2t_R@5": 97.19,
+      "t2i_R@10": 96.85,
+      "i2t_R@10": 99.1,
+      "rsum": 541.29,
+      "cos_matched": 0.7055,
+      "cos_unmatched": 0.5363
+    },
+    "en/img_bos/cap_query": {
+      "t2i_R@1": 75.97,
+      "i2t_R@1": 88.87,
+      "t2i_R@5": 94.08,
+      "i2t_R@5": 98.7,
+      "t2i_R@10": 97.47,
+      "i2t_R@10": 100.0,
+      "rsum": 555.09,
+      "cos_matched": 0.7468,
+      "cos_unmatched": 0.5354
+    },
+    "en/img_bos/cap_none": {
+      "t2i_R@1": 76.57,
+      "i2t_R@1": 89.57,
+      "t2i_R@5": 94.28,
+      "i2t_R@5": 98.7,
+      "t2i_R@10": 97.35,
+      "i2t_R@10": 99.9,
+      "rsum": 556.37,
+      "cos_matched": 0.7136,
+      "cos_unmatched": 0.4896
+    },
+    "ja/img_nobos/cap_query": {
+      "t2i_R@1": 72.24,
+      "i2t_R@1": 84.25,
+      "t2i_R@5": 92.88,
+      "i2t_R@5": 98.29,
+      "t2i_R@10": 97.05,
+      "i2t_R@10": 99.5,
+      "rsum": 544.21,
+      "cos_matched": 0.7126,
+      "cos_unmatched": 0.5378
+    },
+    "ja/img_nobos/cap_none": {
+      "t2i_R@1": 72.2,
+      "i2t_R@1": 83.35,
+      "t2i_R@5": 92.6,
+      "i2t_R@5": 97.19,
+      "t2i_R@10": 96.85,
+      "i2t_R@10": 99.1,
+      "rsum": 541.29,
+      "cos_matched": 0.7055,
+      "cos_unmatched": 0.5363
+    },
+    "en/img_nobos/cap_query": {
+      "t2i_R@1": 75.97,
+      "i2t_R@1": 88.87,
+      "t2i_R@5": 94.08,
+      "i2t_R@5": 98.7,
+      "t2i_R@10": 97.47,
+      "i2t_R@10": 100.0,
+      "rsum": 555.09,
+      "cos_matched": 0.7468,
+      "cos_unmatched": 0.5354
+    },
+    "en/img_nobos/cap_none": {
+      "t2i_R@1": 76.57,
+      "i2t_R@1": 89.57,
+      "t2i_R@5": 94.28,
+      "i2t_R@5": 98.7,
+      "t2i_R@10": 97.35,
+      "i2t_R@10": 99.9,
+      "rsum": 556.37,
+      "cos_matched": 0.7136,
+      "cos_unmatched": 0.4896
+    }
+  },
+  "sanity_augmented": {
+    "cos_same_image": 0.9742,
+    "cos_other_images": 0.6064,
+    "top1_is_original_pct": 100.0
+  }
+}
