@@ -5,11 +5,11 @@ import pytest
 from conftest import embed, l2_norm, requires_vl
 
 EMBED_MODELS = [
-    "gemma-3-300m",
+    # "gemma-3-300m",
     "bge-m3",
-    "bge-m3-8bit",
-    "qwen3-0.6b-embed",
-    pytest.param("qwen3-vl-embedding-2b", marks=[pytest.mark.vl, requires_vl]),
+    # "bge-m3-8bit",
+    # "qwen3-0.6b-embed",
+    # pytest.param("qwen3-vl-embedding-2b", marks=[pytest.mark.vl, requires_vl]),
 ]
 
 
@@ -65,6 +65,7 @@ class TestEmbeddingRequestShapes:
 class TestInputTypeHandling:
     """`input_type` only drives the gemma prefix / VL default instruction."""
 
+    @pytest.mark.skip(reason="gemma-3-300m is disabled in AVAILABLE_EMBED_MODELS")
     def test_gemma_prefix_changes_the_vector(self, client, test_cases):
         assert test_cases["embedding"]["gemma-3-300m"]["prefix_sensitive"] is True
         text = "プレフィックスの効果を確認する文"
@@ -72,7 +73,7 @@ class TestInputTypeHandling:
         as_document = embed(client, "gemma-3-300m", [text], "document")
         assert as_query["data"][0]["embedding"] != as_document["data"][0]["embedding"]
 
-    @pytest.mark.parametrize("model_name", ["bge-m3", "bge-m3-8bit", "qwen3-0.6b-embed"])
+    @pytest.mark.parametrize("model_name", ["bge-m3"])  # "bge-m3-8bit", "qwen3-0.6b-embed" disabled
     def test_standard_models_ignore_input_type(self, client, test_cases, model_name):
         assert test_cases["embedding"][model_name]["prefix_sensitive"] is False
         text = "input_type は標準モデルでは無視される"
@@ -80,7 +81,7 @@ class TestInputTypeHandling:
         as_document = embed(client, model_name, [text], "document")
         assert as_query["data"][0]["embedding"] == as_document["data"][0]["embedding"]
 
-    @pytest.mark.parametrize("model_name", ["bge-m3", "gemma-3-300m"])
+    @pytest.mark.parametrize("model_name", ["bge-m3"])  # "gemma-3-300m" disabled
     def test_instruction_is_ignored_by_non_vl_models(self, client, model_name):
         """`instruction` is honored only by qwen3-vl-embedding-2b."""
         text = "instruction は VL 以外では無視される"
