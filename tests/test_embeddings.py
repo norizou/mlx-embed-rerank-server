@@ -4,10 +4,14 @@ import pytest
 
 from conftest import embed, l2_norm, requires_vl
 
+# `qwen3_embed` models; empty while qwen3-0.6b-embed is disabled (cache removed 2026-11-25),
+# so the Qwen3-specific tests are skipped. Re-enable as ["qwen3-0.6b-embed"].
+QWEN3_EMBED_MODELS: list[str] = []
+
 EMBED_MODELS = [
     "gemma-3-300m",
     "embeddinggemma-2",
-    "qwen3-0.6b-embed",
+    *QWEN3_EMBED_MODELS,
     # bge-m3 / bge-m3-8bit are disabled in AVAILABLE_EMBED_MODELS (cache removed 2026-11-24).
     # qwen3-vl-embedding-2b is disabled in AVAILABLE_EMBED_MODELS (not cached, needs torch):
     # pytest.param("qwen3-vl-embedding-2b", marks=[pytest.mark.vl, requires_vl]),
@@ -70,7 +74,7 @@ class TestInputTypeHandling:
     """`input_type` drives the gemma / embeddinggemma-2 prompt, the qwen3-0.6b-embed
     query instruction and the VL default instruction; BGE-M3 ignores it."""
 
-    @pytest.mark.parametrize("model_name", ["gemma-3-300m", "embeddinggemma-2", "qwen3-0.6b-embed"])
+    @pytest.mark.parametrize("model_name", ["gemma-3-300m", "embeddinggemma-2", *QWEN3_EMBED_MODELS])
     def test_query_prompt_changes_the_vector(self, client, test_cases, model_name):
         assert test_cases["embedding"][model_name]["prefix_sensitive"] is True
         text = "プレフィックスの効果を確認する文"
@@ -78,10 +82,11 @@ class TestInputTypeHandling:
         as_document = embed(client, model_name, [text], "document")
         assert as_query["data"][0]["embedding"] != as_document["data"][0]["embedding"]
 
-    def test_qwen3_embed_honors_instruction_on_queries(self, client):
+    @pytest.mark.parametrize("model_name", QWEN3_EMBED_MODELS)
+    def test_qwen3_embed_honors_instruction_on_queries(self, client, model_name):
         text = "instruction は qwen3-0.6b-embed のクエリに効く"
-        default = embed(client, "qwen3-0.6b-embed", [text], "query")
-        custom = embed(client, "qwen3-0.6b-embed", [text], "query", instruction="Retrieve semantically similar text.")
+        default = embed(client, model_name, [text], "query")
+        custom = embed(client, model_name, [text], "query", instruction="Retrieve semantically similar text.")
         assert default["data"][0]["embedding"] != custom["data"][0]["embedding"]
 
     # `standard` (CLS) models; empty while bge-m3 / bge-m3-8bit are disabled, so this test is skipped.
@@ -138,7 +143,7 @@ class TestRetrievalSanity:
     """
 
     @pytest.mark.parametrize(
-        "model_name", ["gemma-3-300m", "embeddinggemma-2", "qwen3-0.6b-embed"]
+        "model_name", ["gemma-3-300m", "embeddinggemma-2", *QWEN3_EMBED_MODELS]
     )
     def test_each_query_ranks_its_answer_first(self, client, test_cases, model_name):
         case = test_cases["embedding_retrieval"]

@@ -69,9 +69,9 @@ http://localhost:1235
   "status": "ok",
   "loaded_embed_models": [], "loaded_rerank_models": [],
   "loaded_asr_models": [], "loaded_tts_models": [],
-  "available_embed": ["gemma-3-300m", "embeddinggemma-2", "qwen3-0.6b-embed"],
+  "available_embed": ["gemma-3-300m", "embeddinggemma-2"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
-  "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
+  "available_audio": ["qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
                       "irodori-tts-v4.1-small-8bit"]
 }
 ```
@@ -96,8 +96,8 @@ http://localhost:1235
 | `input` | `string \| (string \| 画像オブジェクト)[]` | 必須 | 埋め込み対象。画像オブジェクトは `embeddinggemma-2` のみ（下記） |
 | `model` | `string` | `embeddinggemma-2` | Embedding モデル ID |
 | `input_type` | `"query" \| "document"` | `"document"` | `gemma-3-300m` / `embeddinggemma-2` のタスクプロンプト、`qwen3-0.6b-embed` のクエリ指示文、`qwen3-vl-embedding-2b` の既定 instruction を切り替え |
-| `instruction` | `string` | `null` | `qwen3-0.6b-embed`（`input_type: "query"` のときのみ）と `qwen3-vl-embedding-2b` が使用。他のモデルでは無視されます |
-| `dimensions` | `int` | `null` | Matryoshka 対応モデル（`gemma-3-300m` / `embeddinggemma-2` / `qwen3-0.6b-embed`）で先頭 N 次元に切り詰めて再正規化。非対応モデルや範囲外は `400` |
+| `instruction` | `string` | `null` | `qwen3-0.6b-embed`（`input_type: "query"` のときのみ）と `qwen3-vl-embedding-2b` が使用（どちらも現在は無効化中）。他のモデルでは無視されます |
+| `dimensions` | `int` | `null` | Matryoshka 対応モデル（`gemma-3-300m` / `embeddinggemma-2`）で先頭 N 次元に切り詰めて再正規化。非対応モデルや範囲外は `400` |
 | `image_tokens` | `70 \| 140 \| 280 \| 560 \| 1120` | `280` | 画像 1 枚あたりのトークン数（`embeddinggemma-2` のみ）。画像は縦横比を保ってこのトークン数いっぱいまで拡大・縮小されるので、増やすほど高解像度になる。文字の多いページ（PDF・スライド・スクリーンショット）は `560` がおすすめ（`BENCHMARK_REPORT.md` §10）。画像を含まないリクエストでは無視。画像非対応モデルや上記以外の値は `400` |
 
 > **文字の多いページの埋め込み**: 同じ画像でも `image_tokens` が違えばベクトルも変わるので、1 つのインデックスの中では値をそろえてください。
@@ -253,7 +253,7 @@ sequenceDiagram
 | `gemma-3-300m` | `embeddinggemma-300m-bf16` | EmbeddingGemma 300M。768 次元。**テキスト検索の精度は最良かつ最速**。Matryoshka 対応 |
 | ~~`bge-m3`~~ | `bge-m3-mlx-fp16` | **2026-11-24 に無効化**（HF キャッシュを削除）。1024 次元。旧デフォルト |
 | ~~`bge-m3-8bit`~~ | `bge-m3-mlx-8bit` | **2026-11-24 に無効化**（HF キャッシュを削除）。BGE-M3 の 8bit 量子化版 |
-| `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 Embedding（テキスト専用、1024 次元）。クエリに指示文を付与。Matryoshka 対応 |
+| ~~`qwen3-0.6b-embed`~~ | `Qwen3-Embedding-0.6B-mxfp8` | **2026-11-25 に無効化**（HF キャッシュ削除。全タスクで最下位かつ最も遅く、BF16 でも変わらない → BENCHMARK_REPORT §9 / §12）。Qwen3 Embedding、1024 次元 |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | 2B マルチモーダル。`instruction` 対応。最高精度・最重量 |
 
 ### Reranker (デフォルト: `qwen3-0.6b`)
@@ -267,7 +267,7 @@ sequenceDiagram
 
 | モデル ID | Hugging Face モデル | 特徴 |
 | :--- | :--- | :--- |
-| `qwen3-asr-0.6b-8bit` | `Qwen3-ASR-0.6B-8bit` | 音声認識。最速（リアルタイム比 65.8x） |
+| ~~`qwen3-asr-0.6b-8bit`~~ | `Qwen3-ASR-0.6B-8bit` | **2026-11-25 に無効化**（HF キャッシュ削除。1.7B より 0.25 秒速いだけで精度が大きく劣る → §5） |
 | `qwen3-asr-1.7b-8bit` | `Qwen3-ASR-1.7B-8bit` | 音声認識。最高精度（43.9x、デフォルト） |
 | `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | 音声合成・ボイスクローン。ロードが速い |
 | `qwen3-tts-1.7b-base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | 音声合成。話速が最も安定 |
@@ -620,7 +620,7 @@ uv run pytest tests/
 | ファイル | 検証内容 |
 | :--- | :--- |
 | `tests/test_health.py` | `/health` のペイロード構造・デフォルトモデルの実在・ポート 1236 の監視プローブ |
-| `tests/test_embeddings.py` | 全 6 モデルの次元数・単位ベクトル性・OpenAI 互換構造・デフォルトモデル・文字列/配列入力の等価性・決定性・`input_type` のプロンプト挙動・`instruction` の有効/無視・**4 クエリ×4 文書の検索健全性（プーリング回帰の検知）**・Matryoshka の `dimensions`・画像入力（単体・テキスト混在の順序・色とキャプションの対応）・`image_tokens`（既定値との一致・他の値での変化・テキストへの非影響） |
+| `tests/test_embeddings.py` | 有効な全モデル（現在 2 つ）の次元数・単位ベクトル性・OpenAI 互換構造・デフォルトモデル・文字列/配列入力の等価性・決定性・`input_type` のプロンプト挙動・`instruction` の有効/無視・**4 クエリ×4 文書の検索健全性（プーリング回帰の検知）**・Matryoshka の `dimensions`・画像入力（単体・テキスト混在の順序・色とキャプションの対応）・`image_tokens`（既定値との一致・他の値での変化・テキストへの非影響） |
 | `tests/test_rerank.py` | 両 Reranker のレスポンス構造・降順・期待 1 位・スコア範囲・`/rerank` エイリアス・`top_k`（既定/切り詰め/`0`=全件/超過）・空配列・決定性・`instruction`（省略時と既定文の一致、指定でスコアが変わること）・**4 クエリの検索健全性（プロンプト書式の回帰検知）**・長い文書の切り詰め |
 | `tests/test_audio.py` | STT の JSON 構造・`/tmp` 一時ファイルの後始末・TTS の Content-Type と RIFF ヘッダ・デフォルトモデル・音声モデルが常駐すること |
 | `tests/test_errors.py` | 未対応モデルの 400（全エンドポイント）・画像/`dimensions`/`image_tokens` の入力エラー（URL・パス・壊れた base64 の拒否を含む）・種別違いモデル・422 バリデーション・404 |
@@ -667,6 +667,12 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-11-25 — 使わないモデルを無効化
+
+- `qwen3-0.6b-embed` と `qwen3-asr-0.6b-8bit` を `AVAILABLE_*_MODELS` でコメントアウトし、HF キャッシュから削除。前者は JMTEB サブセットの全タスクで最下位かつ最も遅く、BF16 版でも変わらなかった（`BENCHMARK_REPORT.md` §9 / §12）。後者は既定の 1.7B より 0.25 秒速いだけで精度が大きく劣る（§5）
+- これらを `model` に指定していたクライアントは `400`（未対応モデル）になる。Embedding は `embeddinggemma-2` か `gemma-3-300m`、ASR は既定の `qwen3-asr-1.7b-8bit` を使う
+- `qwen3_embed` の処理（末尾トークンのプーリングとクエリの指示文）は残してあるので、登録を戻せば再び使える
 
 ### 2026-11-24 — `/v1/rerank` が `top_n` を受け付けるように修正
 

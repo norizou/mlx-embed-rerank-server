@@ -7,14 +7,12 @@
     "expected_status": "ok",
     "expected_embed_models": [
       "gemma-3-300m",
-      "embeddinggemma-2",
-      "qwen3-0.6b-embed"
+      "embeddinggemma-2"
     ],
     "expected_rerank_models": [
       "qwen3-0.6b"
     ],
     "expected_audio_models": [
-      "qwen3-asr-0.6b-8bit",
       "qwen3-asr-1.7b-8bit",
       "qwen3-tts-0.6b-base-8bit",
       "qwen3-tts-1.7b-base-8bit",

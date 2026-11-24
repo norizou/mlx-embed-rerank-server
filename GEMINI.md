@@ -8,9 +8,9 @@
 - **Web Framework:** FastAPI + Uvicorn (API on port `1235`), plus a `http.server` health probe on port `1236` in a daemon thread
 - **AI/ML Backend:** MLX (`mlx-embeddings`, `mlx-lm`, `mlx-audio`, `mlx-vlm` for EmbeddingGemma 2). No PyTorch path remains in the server.
 - **Models:**
-  - **Embedding (3 enabled):** `embeddinggemma-2-bf16` (default, text + image), `embeddinggemma-300m-bf16`, `Qwen3-Embedding-0.6B-mxfp8`. Disabled (commented out in `AVAILABLE_EMBED_MODELS`): `bge-m3`, `bge-m3-8bit` (HF cache removed 2026-11-24), `Qwen3-VL-Embedding-2B-mxfp8` (not cached, needs torch)
+  - **Embedding (2 enabled):** `embeddinggemma-2-bf16` (default, text + image), `embeddinggemma-300m-bf16`. Disabled (commented out in `AVAILABLE_EMBED_MODELS`): `Qwen3-Embedding-0.6B-mxfp8` (2026-11-25; last on every task, BF16 no better — §12), `bge-m3`, `bge-m3-8bit` (HF cache removed 2026-11-24), `Qwen3-VL-Embedding-2B-mxfp8` (not cached, needs torch)
   - **Reranker (2):** `Qwen3-Reranker-0.6B-mxfp8` (default), `Qwen3-VL-Reranker-2B-mxfp8`
-  - **ASR (2):** `Qwen3-ASR-1.7B-8bit` (default), `Qwen3-ASR-0.6B-8bit`
+  - **ASR (1):** `Qwen3-ASR-1.7B-8bit` (default). `Qwen3-ASR-0.6B-8bit` disabled 2026-11-25 (only 0.25 s faster, much less accurate — §5)
   - **TTS — Qwen3 (2):** `Qwen3-TTS-12Hz-0.6B-Base-8bit`, `Qwen3-TTS-12Hz-1.7B-Base-8bit`
   - **TTS — Irodori (1):** `Irodori-TTS-v4.1-Small-8bit` (default) — Japanese-specialised flow-matching engine. One unified checkpoint covering voice cloning, VoiceDesign (caption) and automatic duration. The fp16 variant was removed (`BENCHMARK_REPORT.md` §7/§8 found it indistinguishable from 8bit on quality, worse on speed/memory/disk)
 

@@ -64,9 +64,9 @@ A dedicated health-check server also listens on `http://localhost:1236` (see [Su
   "status": "ok",
   "loaded_embed_models": [], "loaded_rerank_models": [],
   "loaded_asr_models": [], "loaded_tts_models": [],
-  "available_embed": ["gemma-3-300m", "embeddinggemma-2", "qwen3-0.6b-embed"],
+  "available_embed": ["gemma-3-300m", "embeddinggemma-2"],
   "available_rerank": ["qwen3-0.6b", "qwen3-vl-reranker-2b"],
-  "available_audio": ["qwen3-asr-0.6b-8bit", "qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
+  "available_audio": ["qwen3-asr-1.7b-8bit", "qwen3-tts-0.6b-base-8bit", "qwen3-tts-1.7b-base-8bit",
                       "irodori-tts-v4.1-small-8bit"]
 }
 ```
@@ -91,8 +91,8 @@ Lists every model in `available_*` (loaded or not) in the OpenAI `list` shape. E
 | `input` | `string \| (string \| image object)[]` | – (required) | What to embed. Image objects are accepted by `embeddinggemma-2` only (see below). |
 | `model` | `string` | `embeddinggemma-2` | Embedding model ID. |
 | `input_type` | `"query" \| "document"` | `"document"` | Selects the task prompt for `gemma-3-300m` / `embeddinggemma-2`, the query instruction for `qwen3-0.6b-embed`, and the default instruction for `qwen3-vl-embedding-2b`. |
-| `instruction` | `string` | `null` | Used by `qwen3-0.6b-embed` (queries only) and `qwen3-vl-embedding-2b`. Ignored by the other models. |
-| `dimensions` | `int` | `null` | Matryoshka truncation + re-normalisation for `gemma-3-300m` / `embeddinggemma-2` / `qwen3-0.6b-embed`. `400` on other models or out of range. |
+| `instruction` | `string` | `null` | Used by `qwen3-0.6b-embed` (queries only) and `qwen3-vl-embedding-2b`, both currently disabled. Ignored by the other models. |
+| `dimensions` | `int` | `null` | Matryoshka truncation + re-normalisation for `gemma-3-300m` / `embeddinggemma-2`. `400` on other models or out of range. |
 | `image_tokens` | `70 \| 140 \| 280 \| 560 \| 1120` | `280` | Token budget per image (`embeddinggemma-2` only). Images are rescaled, keeping the aspect ratio, to fill the budget, so more tokens means higher resolution. Use `560` for text-heavy pages (PDF pages, slides, screenshots; `BENCHMARK_REPORT.md` §10). Ignored when the request has no images; `400` on a text-only model or for any other value. |
 
 > **Text-heavy pages**: the same image gives a different vector at a different `image_tokens`, so keep one value per index.
@@ -236,7 +236,7 @@ You can select a model by passing the `model` parameter in your API request. If 
 | `gemma-3-300m` | `embeddinggemma-300m-bf16` | EmbeddingGemma 300M, 768-d. **Best and fastest for text-only retrieval.** Matryoshka. |
 | ~~`bge-m3`~~ | `bge-m3-mlx-fp16` | **Disabled on 2026-11-24** (HF cache removed). 1024-d, former default. |
 | ~~`bge-m3-8bit`~~ | `bge-m3-mlx-8bit` | **Disabled on 2026-11-24** (HF cache removed). BGE-M3 8-bit quantized. |
-| `qwen3-0.6b-embed` | `Qwen3-Embedding-0.6B-mxfp8` | Qwen3 embedding (text only, 1024-d), instruction on queries, Matryoshka. |
+| ~~`qwen3-0.6b-embed`~~ | `Qwen3-Embedding-0.6B-mxfp8` | **Disabled on 2026-11-25** (HF cache removed; last on every task and slowest, BF16 no better — BENCHMARK_REPORT §9 / §12). Qwen3 embedding, 1024-d. |
 | `qwen3-vl-embedding-2b` | `Qwen3-VL-Embedding-2B-mxfp8` | 2B multimodal backbone, supports `instruction`; highest recall, slowest. |
 
 ### Reranker (Default: `qwen3-0.6b`)
@@ -248,7 +248,7 @@ You can select a model by passing the `model` parameter in your API request. If 
 ### Audio (STT Default: `qwen3-asr-1.7b-8bit` / TTS Default: `irodori-tts-v4.1-small-8bit`)
 | Model ID | Hugging Face Model | Description / Strengths |
 | :--- | :--- | :--- |
-| `qwen3-asr-0.6b-8bit` | `Qwen3-ASR-0.6B-8bit` | Speech-to-Text (ASR), fastest (65.8x realtime). |
+| ~~`qwen3-asr-0.6b-8bit`~~ | `Qwen3-ASR-0.6B-8bit` | **Disabled on 2026-11-25** (HF cache removed; only 0.25 s faster than 1.7B with clearly worse accuracy — §5). |
 | `qwen3-asr-1.7b-8bit` | `Qwen3-ASR-1.7B-8bit` | Speech-to-Text (ASR), best accuracy (43.9x realtime, default). |
 | `qwen3-tts-0.6b-base-8bit` | `Qwen3-TTS-12Hz-0.6B-Base-8bit` | Text-to-Speech (TTS), voice cloning, fast load. |
 | `qwen3-tts-1.7b-base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | Text-to-Speech (TTS), most stable speech tempo. |
@@ -586,7 +586,7 @@ Everything is an **API integration test** against the running server — nothing
 | File | Covers |
 | :--- | :--- |
 | `tests/test_health.py` | `/health` payload, defaults, and the port-1236 supervisor probe |
-| `tests/test_embeddings.py` | All 6 models: dimensions, unit norm, OpenAI envelope, default model, string vs list input, determinism, `input_type` prompts, where `instruction` applies, **4-query retrieval sanity (pooling regression guard)**, Matryoshka `dimensions`, image inputs (single, mixed-order, colour/caption match), `image_tokens` (default, other budgets, text unaffected) |
+| `tests/test_embeddings.py` | Every enabled model (2 today): dimensions, unit norm, OpenAI envelope, default model, string vs list input, determinism, `input_type` prompts, where `instruction` applies, **4-query retrieval sanity (pooling regression guard)**, Matryoshka `dimensions`, image inputs (single, mixed-order, colour/caption match), `image_tokens` (default, other budgets, text unaffected) |
 | `tests/test_rerank.py` | Both rerankers: response shape, descending order, expected winner, score range, `/rerank` alias, `top_k` (default / limit / `0` = all / oversized), empty documents, determinism, `instruction` (omitted = default text, changes the scores), **4-query retrieval sanity (prompt-format regression guard)**, long-document truncation |
 | `tests/test_audio.py` | STT JSON shape, `/tmp` cleanup, TTS content-type / RIFF header / defaults, audio models staying resident |
 | `tests/test_errors.py` | Unknown model → 400 on every endpoint, image / `dimensions` / `image_tokens` input errors (URLs, paths and broken base64 rejected), wrong model type, 422 validation, 404 |

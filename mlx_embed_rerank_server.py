@@ -106,12 +106,16 @@ AVAILABLE_EMBED_MODELS = {
     #     "type": "qwen3_vl_embed",
     #     "description": "Qwen3-VL Embedding 2B (Multimodal, mlx-embeddings)"
     # },
-    "qwen3-0.6b-embed": {
-        "id": "mlx-community/Qwen3-Embedding-0.6B-mxfp8",
-        "type": "qwen3_embed",
-        "matryoshka": True,
-        "description": "Qwen3 Embedding 0.6B (Text only, last-token pooling)"
-    }
+    # 2026-11-25 HFキャッシュを削除したため無効化中 (BENCHMARK_REPORT.md §9 / §12 で全タスク最下位、
+    # 速度も最も遅い。BF16 にしても変わらない)。qwen3_embed の処理は残してあるので、戻す場合は
+    # ここと tests/test_embeddings.py の EMBED_MODELS / QWEN3_EMBED_MODELS、
+    # tests/data/test_cases.json の health.expected_embed_models を戻すこと:
+    # "qwen3-0.6b-embed": {
+    #     "id": "mlx-community/Qwen3-Embedding-0.6B-mxfp8",
+    #     "type": "qwen3_embed",
+    #     "matryoshka": True,
+    #     "description": "Qwen3 Embedding 0.6B (Text only, last-token pooling)"
+    # }
 }
 
 # EmbeddingGemma 系のタスクプロンプト (config_sentence_transformers.json の query / document)
@@ -156,11 +160,14 @@ AVAILABLE_RERANK_MODELS = {
 }
 
 AVAILABLE_AUDIO_MODELS = {
-    "qwen3-asr-0.6b-8bit": {
-        "id": "mlx-community/Qwen3-ASR-0.6B-8bit",
-        "type": "asr",
-        "description": "Qwen3 ASR 0.6B 8-bit (Speech-to-Text, Fast)"
-    },
+    # 2026-11-25 HFキャッシュを削除したため無効化中 (BENCHMARK_REPORT.md §5: 既定の 1.7B より
+    # 0.25 秒速いだけで精度が大きく劣る)。戻す場合は tests/data/test_cases.json の
+    # health.expected_audio_models も戻すこと:
+    # "qwen3-asr-0.6b-8bit": {
+    #     "id": "mlx-community/Qwen3-ASR-0.6B-8bit",
+    #     "type": "asr",
+    #     "description": "Qwen3 ASR 0.6B 8-bit (Speech-to-Text, Fast)"
+    # },
     "qwen3-asr-1.7b-8bit": {
         "id": "mlx-community/Qwen3-ASR-1.7B-8bit",
         "type": "asr",
