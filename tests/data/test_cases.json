@@ -172,7 +172,8 @@
       "tts_irodori_missing_reference": 400,
       "embeddings_image_on_text_model": 400,
       "embeddings_bad_image": 400,
-      "embeddings_bad_dimensions": 400
+      "embeddings_bad_dimensions": 400,
+      "embeddings_bad_image_tokens": 400
     },
     "wrong_type": {
       "tts_model_for_stt": "qwen3-tts-1.7b-base-8bit",
@@ -205,6 +206,14 @@
   "embedding_images": {
     "model": "embeddinggemma-2",
     "expected_dim": 768,
-    "text_only_model": "gemma-3-300m"
+    "text_only_model": "gemma-3-300m",
+    "image_token_options": [
+      70,
+      140,
+      280,
+      560,
+      1120
+    ],
+    "default_image_tokens": 280
   }
 }

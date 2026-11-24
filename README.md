@@ -93,6 +93,11 @@ Lists every model in `available_*` (loaded or not) in the OpenAI `list` shape. E
 | `input_type` | `"query" \| "document"` | `"document"` | Selects the task prompt for `gemma-3-300m` / `embeddinggemma-2`, the query instruction for `qwen3-0.6b-embed`, and the default instruction for `qwen3-vl-embedding-2b`. |
 | `instruction` | `string` | `null` | Used by `qwen3-0.6b-embed` (queries only) and `qwen3-vl-embedding-2b`. Ignored by the other models. |
 | `dimensions` | `int` | `null` | Matryoshka truncation + re-normalisation for `gemma-3-300m` / `embeddinggemma-2` / `qwen3-0.6b-embed`. `400` on other models or out of range. |
+| `image_tokens` | `70 \| 140 \| 280 \| 560 \| 1120` | `280` | Token budget per image (`embeddinggemma-2` only). Images are rescaled, keeping the aspect ratio, to fill the budget, so more tokens means higher resolution. Use `560` for text-heavy pages (PDF pages, slides, screenshots; `BENCHMARK_REPORT.md` §10). Ignored when the request has no images; `400` on a text-only model or for any other value. |
+
+> **Text-heavy pages**: the same image gives a different vector at a different `image_tokens`, so keep one value per index.
+> For the best accuracy, cut each page into 2×2 tiles on the client, send each tile, and score the page by its best tile;
+> that beats sending the whole page at 1120 tokens (§10).
 
 **Output vectors**: every model returns L2-normalised vectors, pooled the way the model was trained:
 
@@ -137,7 +142,7 @@ The response contains `{"model": ..., "results": [{"index": ..., "relevance_scor
 | Situation | Endpoint | Status |
 |:---|:---|:---|
 | Unknown model name | all endpoints | `400` with a short detail message |
-| Image on a text-only model; URL / path / broken base64 image; invalid `dimensions` | `/v1/embeddings` | `400`, checked before any model is loaded |
+| Image on a text-only model; URL / path / broken base64 image; invalid `dimensions` or `image_tokens` | `/v1/embeddings` | `400`, checked before any model is loaded |
 | Inference failure | `/v1/embeddings` | `500` with the full Python traceback in `detail` (intended for local debugging; do not expose the port publicly) |
 | Inference failure | `/v1/rerank` | `500` `Internal Server Error` (no traceback; check the server log) |
 
@@ -577,10 +582,10 @@ Everything is an **API integration test** against the running server — nothing
 | File | Covers |
 | :--- | :--- |
 | `tests/test_health.py` | `/health` payload, defaults, and the port-1236 supervisor probe |
-| `tests/test_embeddings.py` | All 6 models: dimensions, unit norm, OpenAI envelope, default model, string vs list input, determinism, `input_type` prompts, where `instruction` applies, **4-query retrieval sanity (pooling regression guard)**, Matryoshka `dimensions`, image inputs (single, mixed-order, colour/caption match) |
+| `tests/test_embeddings.py` | All 6 models: dimensions, unit norm, OpenAI envelope, default model, string vs list input, determinism, `input_type` prompts, where `instruction` applies, **4-query retrieval sanity (pooling regression guard)**, Matryoshka `dimensions`, image inputs (single, mixed-order, colour/caption match), `image_tokens` (default, other budgets, text unaffected) |
 | `tests/test_rerank.py` | Both rerankers: response shape, descending order, expected winner, score range, `/rerank` alias, `top_k` (default / limit / `0` = all / oversized), empty documents, determinism, `instruction` ignored by `qwen3-0.6b` |
 | `tests/test_audio.py` | STT JSON shape, `/tmp` cleanup, TTS content-type / RIFF header / defaults, audio models staying resident |
-| `tests/test_errors.py` | Unknown model → 400 on every endpoint, image / `dimensions` input errors (URLs, paths and broken base64 rejected), wrong model type, 422 validation, 404 |
+| `tests/test_errors.py` | Unknown model → 400 on every endpoint, image / `dimensions` / `image_tokens` input errors (URLs, paths and broken base64 rejected), wrong model type, 422 validation, 404 |
 
 Markers (registered in `pyproject.toml`, `--strict-markers` is on):
 

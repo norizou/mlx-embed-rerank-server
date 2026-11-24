@@ -72,6 +72,7 @@ except ImportError:
 #   embedding_gemma2 : EmbeddingGemma 2。mlx_vlm でロード、mean pooling -> L2 (= text_embeds)。画像も可
 #   qwen3_vl_embed   : Qwen3-VL Embedding。model.process() に任せる
 # "matryoshka": True のモデルは `dimensions` で先頭 N 次元に切り詰めて再正規化できる。
+# "supports_images": True のモデルは画像を受け付け、`image_tokens` で 1 枚あたりの画像トークン数を選べる。
 AVAILABLE_EMBED_MODELS = {
     "gemma-3-300m": {
         "id": "mlx-community/embeddinggemma-300m-bf16",
@@ -120,6 +121,11 @@ GEMMA_DOC_PREFIX = "title: none | text: "
 QWEN3_EMBED_DEFAULT_INSTRUCTION = "Given a web search query, retrieve relevant passages that answer the query"
 EMBED_MAX_LENGTH = 2048
 EMBED_BATCH_SIZE = 16
+# 画像 1 枚あたりのトークン数 (Gemma4 image processor の max_soft_tokens が受け付ける値)。
+# 画像は縦横比を保ってこのトークン数いっぱいまで拡大・縮小されるので、増やすほど高解像度になる。
+# 既定はモデルの既定値 280。文字の多いページは 560 で大きく改善する (BENCHMARK_REPORT.md §10)。
+IMAGE_TOKEN_OPTIONS = (70, 140, 280, 560, 1120)
+DEFAULT_IMAGE_TOKENS = 280
 
 AVAILABLE_RERANK_MODELS = {
     "qwen3-0.6b": {
@@ -406,11 +412,12 @@ def _batched_text_embeds(model, tokenizer, texts: List[str], ids_kwarg: str = "i
     return np.concatenate(out, axis=0)
 
 
-def _embedding_gemma2_image(model, parts: dict, image) -> np.ndarray:
+def _embedding_gemma2_image(model, parts: dict, image, image_tokens: int = DEFAULT_IMAGE_TOKENS) -> np.ndarray:
     """画像 1 枚 -> 768 次元。<bos><boi>{<image> x n}<eoi><eos> を組み立てて forward する
-    (EmbeddingGemma2Processor.replace_image_token と同じ展開)。"""
+    (EmbeddingGemma2Processor.replace_image_token と同じ展開)。
+    image_tokens は呼び出しごとに processor へ渡す (共有の processor の設定は書き換えない)。"""
     tok, ip = parts["tokenizer"], parts["image_processor"]
-    pix = ip(images=[image], return_tensors="np")
+    pix = ip(images=[image], max_soft_tokens=image_tokens, return_tensors="np")
     n = int(np.asarray(pix["num_soft_tokens_per_image"]).reshape(-1)[0])
     enc = tok([f"{tok.boi_token}{tok.image_token * n}{tok.eoi_token}"], return_tensors="np")
     result = model(
@@ -427,10 +434,12 @@ def _gemma_prefix(input_type: str) -> str:
 
 
 def compute_embeddings(texts: List[Any], model_name: str, input_type: str = "document",
-                       instruction: Optional[str] = None, dimensions: Optional[int] = None) -> List[List[float]]:
+                       instruction: Optional[str] = None, dimensions: Optional[int] = None,
+                       image_tokens: Optional[int] = None) -> List[List[float]]:
     """texts の要素は str、または embeddinggemma-2 の場合のみ PIL.Image。"""
     (model, processor), config = manager.get_embed(model_name)
-    vecs = _compute_embeddings_raw(model, processor, config, texts, input_type, instruction)
+    vecs = _compute_embeddings_raw(model, processor, config, texts, input_type, instruction,
+                                   image_tokens or DEFAULT_IMAGE_TOKENS)
     if dimensions:
         if dimensions > vecs.shape[1]:
             raise HTTPException(status_code=400, detail=f"dimensions={dimensions} exceeds {model_name}'s {vecs.shape[1]}")
@@ -438,7 +447,8 @@ def compute_embeddings(texts: List[Any], model_name: str, input_type: str = "doc
     return vecs.tolist()
 
 
-def _compute_embeddings_raw(model, processor, config, texts, input_type, instruction):
+def _compute_embeddings_raw(model, processor, config, texts, input_type, instruction,
+                            image_tokens: int = DEFAULT_IMAGE_TOKENS):
     mtype = config["type"]
 
     # EmbeddingGemma (300M): mean pooling -> dense -> L2 は mlx_embeddings の text_embeds。
@@ -457,7 +467,7 @@ def _compute_embeddings_raw(model, processor, config, texts, input_type, instruc
                 out[i] = v
         for i, t in enumerate(texts):
             if not isinstance(t, str):
-                out[i] = _embedding_gemma2_image(model, processor, t)
+                out[i] = _embedding_gemma2_image(model, processor, t, image_tokens)
                 mx.clear_cache()
         return _l2(np.stack(out))
 
@@ -558,6 +568,9 @@ class EmbReq(BaseModel):
     instruction: Optional[str] = None
     # Matryoshka: 先頭 N 次元に切り詰めて再正規化 (OpenAI の `dimensions` と同名)
     dimensions: Optional[int] = None
+    # 画像 1 枚あたりのトークン数 (IMAGE_TOKEN_OPTIONS のいずれか)。省略時は DEFAULT_IMAGE_TOKENS。
+    # 画像対応モデルのみ。リクエストに画像が無ければ使われない
+    image_tokens: Optional[int] = None
 
 
 def _image_payload(item: Dict[str, Any]) -> str:
@@ -625,8 +638,15 @@ async def embeddings(req: EmbReq):
                 raise HTTPException(status_code=400, detail=f"Model {model_name} does not support `dimensions`")
             if req.dimensions <= 0:
                 raise HTTPException(status_code=400, detail="dimensions must be a positive integer")
+        if req.image_tokens is not None:
+            if not config.get("supports_images"):
+                raise HTTPException(status_code=400, detail=f"Model {model_name} does not support `image_tokens`")
+            if req.image_tokens not in IMAGE_TOKEN_OPTIONS:
+                raise HTTPException(status_code=400,
+                                    detail=f"image_tokens must be one of {list(IMAGE_TOKEN_OPTIONS)}")
         items = _parse_embedding_input(req, config, model_name)
-        vecs = compute_embeddings(items, model_name, req.input_type, req.instruction, req.dimensions)
+        vecs = compute_embeddings(items, model_name, req.input_type, req.instruction, req.dimensions,
+                                  req.image_tokens)
 
         return {
             "object": "list",

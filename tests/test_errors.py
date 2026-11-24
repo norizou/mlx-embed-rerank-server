@@ -135,7 +135,7 @@ class TestRequestValidation:
 
 
 class TestEmbeddingInputErrors:
-    """Image / `dimensions` problems are 400s raised before the model is loaded."""
+    """Image / `dimensions` / `image_tokens` problems are 400s raised before the model is loaded."""
 
     TINY_PNG = (
         "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
@@ -174,3 +174,18 @@ class TestEmbeddingInputErrors:
         case = test_cases["embedding_matryoshka"]
         resp = client.post("/v1/embeddings", json={"model": case["model"], "input": "x", "dimensions": dimensions})
         assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_bad_dimensions"]
+
+    def test_image_tokens_on_text_only_model(self, client, test_cases):
+        model = test_cases["embedding_images"]["text_only_model"]
+        resp = client.post("/v1/embeddings", json={"model": model, "input": "x", "image_tokens": 560})
+        assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_bad_image_tokens"]
+        assert "does not support `image_tokens`" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("tokens", [0, -280, 100, 2240])
+    def test_image_tokens_outside_the_supported_set(self, client, test_cases, tokens):
+        case = test_cases["embedding_images"]
+        assert tokens not in case["image_token_options"]
+        resp = client.post("/v1/embeddings", json={"model": case["model"], "input": [{"type": "image", "image": self.TINY_PNG}],
+                                                   "image_tokens": tokens})
+        assert resp.status_code == test_cases["errors"]["expected_status"]["embeddings_bad_image_tokens"]
+        assert "image_tokens must be one of" in resp.json()["detail"]

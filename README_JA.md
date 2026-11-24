@@ -98,6 +98,11 @@ http://localhost:1235
 | `input_type` | `"query" \| "document"` | `"document"` | `gemma-3-300m` / `embeddinggemma-2` のタスクプロンプト、`qwen3-0.6b-embed` のクエリ指示文、`qwen3-vl-embedding-2b` の既定 instruction を切り替え |
 | `instruction` | `string` | `null` | `qwen3-0.6b-embed`（`input_type: "query"` のときのみ）と `qwen3-vl-embedding-2b` が使用。他のモデルでは無視されます |
 | `dimensions` | `int` | `null` | Matryoshka 対応モデル（`gemma-3-300m` / `embeddinggemma-2` / `qwen3-0.6b-embed`）で先頭 N 次元に切り詰めて再正規化。非対応モデルや範囲外は `400` |
+| `image_tokens` | `70 \| 140 \| 280 \| 560 \| 1120` | `280` | 画像 1 枚あたりのトークン数（`embeddinggemma-2` のみ）。画像は縦横比を保ってこのトークン数いっぱいまで拡大・縮小されるので、増やすほど高解像度になる。文字の多いページ（PDF・スライド・スクリーンショット）は `560` がおすすめ（`BENCHMARK_REPORT.md` §10）。画像を含まないリクエストでは無視。画像非対応モデルや上記以外の値は `400` |
+
+> **文字の多いページの埋め込み**: 同じ画像でも `image_tokens` が違えばベクトルも変わるので、1 つのインデックスの中では値をそろえてください。
+> さらに精度が必要な場合は、クライアント側でページを 2×2 のタイルに切り分けてそれぞれ送り、タイルごとの最大スコアをページのスコアにすると、
+> 1120 トークンでページ全体を送るより良い結果になります（§10）。
 
 **出力ベクトルの仕様**: どのモデルも L2 正規化した単位ベクトルを返します。プーリングは各モデルの公式仕様に合わせています。
 
@@ -142,7 +147,7 @@ http://localhost:1235
 | 状況 | エンドポイント | ステータス |
 |:---|:---|:---|
 | 未対応のモデル名 | 全エンドポイント | `400`（短い detail メッセージ） |
-| 画像非対応モデルへの画像、URL / パス / 壊れた base64 の画像、不正な `dimensions` | `/v1/embeddings` | `400`（モデルをロードする前に検証） |
+| 画像非対応モデルへの画像、URL / パス / 壊れた base64 の画像、不正な `dimensions` / `image_tokens` | `/v1/embeddings` | `400`（モデルをロードする前に検証） |
 | 推論の失敗 | `/v1/embeddings` | `500` + `detail` に Python トレースバック全文（ローカルデバッグ用途。ポートを外部公開しないこと） |
 | 推論の失敗 | `/v1/rerank` | `500 Internal Server Error`（トレースバックなし。サーバーログを参照） |
 
@@ -611,10 +616,10 @@ uv run pytest tests/
 | ファイル | 検証内容 |
 | :--- | :--- |
 | `tests/test_health.py` | `/health` のペイロード構造・デフォルトモデルの実在・ポート 1236 の監視プローブ |
-| `tests/test_embeddings.py` | 全 6 モデルの次元数・単位ベクトル性・OpenAI 互換構造・デフォルトモデル・文字列/配列入力の等価性・決定性・`input_type` のプロンプト挙動・`instruction` の有効/無視・**4 クエリ×4 文書の検索健全性（プーリング回帰の検知）**・Matryoshka の `dimensions`・画像入力（単体・テキスト混在の順序・色とキャプションの対応） |
+| `tests/test_embeddings.py` | 全 6 モデルの次元数・単位ベクトル性・OpenAI 互換構造・デフォルトモデル・文字列/配列入力の等価性・決定性・`input_type` のプロンプト挙動・`instruction` の有効/無視・**4 クエリ×4 文書の検索健全性（プーリング回帰の検知）**・Matryoshka の `dimensions`・画像入力（単体・テキスト混在の順序・色とキャプションの対応）・`image_tokens`（既定値との一致・他の値での変化・テキストへの非影響） |
 | `tests/test_rerank.py` | 両 Reranker のレスポンス構造・降順・期待 1 位・スコア範囲・`/rerank` エイリアス・`top_k`（既定/切り詰め/`0`=全件/超過）・空配列・決定性・`qwen3-0.6b` が `instruction` を無視すること |
 | `tests/test_audio.py` | STT の JSON 構造・`/tmp` 一時ファイルの後始末・TTS の Content-Type と RIFF ヘッダ・デフォルトモデル・音声モデルが常駐すること |
-| `tests/test_errors.py` | 未対応モデルの 400（全エンドポイント）・画像/`dimensions` の入力エラー（URL・パス・壊れた base64 の拒否を含む）・種別違いモデル・422 バリデーション・404 |
+| `tests/test_errors.py` | 未対応モデルの 400（全エンドポイント）・画像/`dimensions`/`image_tokens` の入力エラー（URL・パス・壊れた base64 の拒否を含む）・種別違いモデル・422 バリデーション・404 |
 
 マーカー（`pyproject.toml` に登録済み、`--strict-markers` 有効）:
 

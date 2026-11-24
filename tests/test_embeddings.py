@@ -176,6 +176,24 @@ def png_data_uri(rgb, size=(64, 64)) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+def text_page_data_uri(size=(600, 840)) -> str:
+    """A page-like image (rows of small black boxes on white), so the resolution matters."""
+    import base64
+    import io
+
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", size, (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    for row, y in enumerate(range(20, size[1] - 20, 18)):
+        for x in range(20 + (row % 3) * 4, size[0] - 20, 12):
+            if (x // 12 + row) % 5:
+                draw.rectangle((x, y, x + 8, y + 10), fill=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
 class TestImageInputs:
     """embeddinggemma-2 embeds images into the same space as text."""
 
@@ -210,3 +228,40 @@ class TestImageInputs:
         cap_vecs = [d["embedding"] for d in embed(client, model, ["真っ赤な画像", "真っ青な画像"], "query")["data"]]
         assert _cosine(cap_vecs[0], img_vecs[0]) > _cosine(cap_vecs[0], img_vecs[1])
         assert _cosine(cap_vecs[1], img_vecs[1]) > _cosine(cap_vecs[1], img_vecs[0])
+
+
+def _image_vector(client, model, image_uri, **extra):
+    resp = client.post("/v1/embeddings", json={"model": model, "input": [{"type": "image", "image": image_uri}], **extra})
+    assert resp.status_code == 200, resp.text[:300]
+    return resp.json()["data"][0]["embedding"]
+
+
+class TestImageTokens:
+    """`image_tokens` sets the per-image token budget (BENCHMARK_REPORT.md §10)."""
+
+    def test_omitted_equals_the_default(self, client, test_cases):
+        case = test_cases["embedding_images"]
+        page = text_page_data_uri()
+        default = _image_vector(client, case["model"], page)
+        explicit = _image_vector(client, case["model"], page, image_tokens=case["default_image_tokens"])
+        assert _cosine(default, explicit) > 0.9999
+
+    @pytest.mark.parametrize("tokens", [70, 560, 1120])
+    def test_other_budgets_change_the_vector(self, client, test_cases, tokens):
+        """The page is re-rendered at another resolution, so the vector moves but stays a unit vector."""
+        case = test_cases["embedding_images"]
+        assert tokens in case["image_token_options"]
+        page = text_page_data_uri()
+        default = _image_vector(client, case["model"], page)
+        other = _image_vector(client, case["model"], page, image_tokens=tokens)
+        assert len(other) == case["expected_dim"]
+        assert 0.99 <= l2_norm(other) <= 1.01
+        assert _cosine(default, other) < 0.9999
+
+    def test_text_inputs_ignore_image_tokens(self, client, test_cases):
+        model = test_cases["embedding_images"]["model"]
+        plain = embed(client, model, ["画像トークン数はテキストに影響しない"])["data"][0]["embedding"]
+        resp = client.post("/v1/embeddings", json={"model": model, "input": ["画像トークン数はテキストに影響しない"],
+                                                   "image_tokens": 560})
+        assert resp.status_code == 200, resp.text[:300]
+        assert _cosine(plain, resp.json()["data"][0]["embedding"]) > 0.9999
