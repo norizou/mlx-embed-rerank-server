@@ -9,7 +9,9 @@ dependencies = [
     "uvicorn[standard]>=0.27",
     "mlx",
     "mlx-embeddings",
-    "mlx-lm",
+    # mlx-lm main (PR #2082, merged 2026-11-19) removed mlx_lm.models.base.create_attention_mask,
+    # which mlx-embeddings 0.1.0's gemma3_text (gemma-3-300m) imports. Lift once mlx-embeddings follows.
+    "mlx-lm<0.33",
     "mlx-audio>=0.5.1",
     # embeddinggemma-2 (model_type embedding_gemma2) is only in mlx-vlm main as of 2026-11;
     # pinned to the revision the mlx-community weights were converted with (validation.json).

@@ -605,7 +605,7 @@ requires-dist = [
     { name = "mlx" },
     { name = "mlx-audio", specifier = ">=0.5.1" },
     { name = "mlx-embeddings" },
-    { name = "mlx-lm" },
+    { name = "mlx-lm", specifier = "<0.33" },
     { name = "mlx-vlm", url = "https://github.com/Blaizzy/mlx-vlm/archive/3d87e88402f307efbf68e568971aa887ee7d9ed0.tar.gz" },
     { name = "numpy" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
