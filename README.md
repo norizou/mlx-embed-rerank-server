@@ -133,6 +133,7 @@ Lists every model in `available_*` (loaded or not) in the OpenAI `list` shape. E
 | `documents` | `string[]` | – (required) | Candidate documents. |
 | `model` | `string` | `qwen3-0.6b` | Reranker model ID. |
 | `top_k` | `int` | `10` | Number of results to return. `0` returns every document. |
+| `top_n` | `int` | `null` | Alias of `top_k` (Cohere / Jina name); wins over `top_k` when sent. OpenWebUI's external reranker sends this one. |
 | `instruction` | `string` | `null` | For `qwen3-0.6b`, the `<Instruct>` text of the model card's prompt (default: `Given a web search query, retrieve relevant passages that answer the query`; the card recommends English instructions even for other languages). Also used by `qwen3-vl-reranker-2b`. |
 
 The response contains `{"model": ..., "results": [{"index": ..., "relevance_score": ...}, ...]}` sorted by descending score. For `qwen3-0.6b` the score is P(yes) from a softmax over the `yes` / `no` logits (0–1): relevant documents score near 1, unrelated ones near 0. Documents are truncated to 1024 tokens.

@@ -138,6 +138,7 @@ http://localhost:1235
 | `documents` | `string[]` | 必須 | 候補文書 |
 | `model` | `string` | `qwen3-0.6b` | Reranker モデル ID |
 | `top_k` | `int` | `10` | 返却件数。`0` を指定すると全件返却 |
+| `top_n` | `int` | `null` | `top_k` の別名（Cohere / Jina 互換）。指定すると `top_k` より優先。OpenWebUI の外部 Reranker はこちらを送る |
 | `instruction` | `string` | `null` | `qwen3-0.6b` では公式書式の `<Instruct>` に入る指示文（省略時は `Given a web search query, retrieve relevant passages that answer the query`。モデルカードは日本語の文書でも英語の指示文を推奨）。`qwen3-vl-reranker-2b` でも使用 |
 
 レスポンスは `{"model": ..., "results": [{"index": ..., "relevance_score": ...}, ...]}` でスコア降順です。`qwen3-0.6b` のスコアは `yes` / `no` の 2 つのロジットの softmax で求めた yes の確率（0〜1）で、関連する文書は 1 に近く、関連しない文書は 0 に近くなります。文書は 1024 トークンで切り詰めます。
@@ -666,6 +667,10 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-11-24 — `/v1/rerank` が `top_n` を受け付けるように修正
+
+- **不具合修正**: OpenWebUI の外部 Reranker は `top_n`（= 文書数）だけを送り、返ってきた結果を index 順に並べて文書と位置で突き合わせる。サーバーは `top_n` を無視して `top_k` の既定値 10 件で切っていたため、候補が 11 件以上（ハイブリッド検索で BM25 とベクトル検索の上位を合わせると最大 20 件）になると、**スコアが別の文書に付き、関係のない文書が上位に来ていた**。`top_n` を `top_k` の別名として受け付け、指定時は優先するよう修正
 
 ### 2026-11-24 — Reranker を公式の書式に修正
 

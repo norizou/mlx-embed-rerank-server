@@ -83,6 +83,30 @@ class TestRerankRequestShapes:
         data = rerank(client, None, "クエリ", [])
         assert data["results"] == []
 
+    def test_top_n_alias_limits_results(self, client, test_cases):
+        """Cohere / Jina name; it wins over top_k when both are sent."""
+        case = test_cases["rerank"][test_cases["rerank_default_model"]]
+        resp = client.post("/v1/rerank", json={"query": case["query"], "documents": case["documents"],
+                                               "top_n": 1, "top_k": 3})
+        assert resp.status_code == 200, resp.text[:300]
+        assert len(resp.json()["results"]) == 1
+
+    def test_openwebui_external_reranker_gets_every_score(self, client):
+        """OpenWebUI sends only top_n=len(documents), sorts the results by index and
+        zips the scores with its documents by position. With more than 10 documents
+        and top_n ignored, the server cut to the top_k default (10) and the scores
+        landed on the wrong documents (an unrelated one ranked first)."""
+        docs = [f"文書{i}: 関係のない内容です。" for i in range(15)]
+        docs[12] = "住民票の写しは市役所の窓口やコンビニで取得できます。"
+        resp = client.post("/v1/rerank", json={"model": "qwen3-0.6b", "query": "住民票の写しはどこで取得できますか",
+                                               "documents": docs, "top_n": len(docs)})
+        assert resp.status_code == 200, resp.text[:300]
+        results = resp.json()["results"]
+        assert sorted(r["index"] for r in results) == list(range(len(docs)))
+        # OpenWebUI's own pairing must put the relevant document first
+        scores = [r["relevance_score"] for r in sorted(results, key=lambda r: r["index"])]
+        assert max(range(len(docs)), key=lambda i: scores[i]) == 12
+
     def test_deterministic(self, client, test_cases):
         case = test_cases["rerank"][test_cases["rerank_default_model"]]
         first = rerank(client, None, case["query"], case["documents"], top_k=0)

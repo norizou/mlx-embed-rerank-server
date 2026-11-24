@@ -685,6 +685,11 @@ class RerankReq(BaseModel):
     query: str
     documents: List[str]
     top_k: int = 10
+    # Cohere / Jina 互換の名前。指定されていれば top_k より優先する (0 = 全件)。
+    # OpenWebUI の外部 Reranker は top_n=len(documents) だけを送り、返ってきた結果を
+    # index 順に並べて documents と位置で突き合わせる。top_n を無視して 10 件で切ると、
+    # 候補が 11 件以上のときスコアが別の文書に付く
+    top_n: Optional[int] = None
     instruction: Optional[str] = None
 
 @app.post("/v1/rerank")
@@ -699,8 +704,9 @@ async def rerank(req: RerankReq):
         reverse=True
     )
 
-    if req.top_k:
-        ranked = ranked[: min(req.top_k, len(ranked))]
+    limit = req.top_n if req.top_n is not None else req.top_k
+    if limit:
+        ranked = ranked[: min(limit, len(ranked))]
 
     for item in ranked:
         item.pop("document")
