@@ -1,3 +1,4 @@
-data/
-cache/
-.venv/
+# no trailing slash, so symlinks to a shared copy (e.g. from a worktree) are ignored too
+data
+cache
+.venv

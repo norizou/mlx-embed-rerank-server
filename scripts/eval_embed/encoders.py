@@ -105,13 +105,16 @@ class EmbeddingGemma2(_MlxVlmEmbedder):
     path = EG2_PATH
     supports_images = True
 
-    def encode_images(self, paths: list, bos: bool = True, prefix: str = "") -> np.ndarray:
+    def encode_images(self, paths: list, bos: bool = True, prefix: str = "",
+                      max_soft_tokens: int | None = None) -> np.ndarray:
         """One image per forward pass (as mlx_vlm's own server does).
 
         paths: file paths / URLs / PIL images.
         bos:   mlx_vlm's server calls prepare_inputs with add_special_tokens=False
                (no <bos>), unlike the text path; eval_image.py measures both.
         prefix: optional text placed before the image placeholder.
+        max_soft_tokens: image token budget (70/140/280/560/1120; model default 280).
+               The image processor rescales every image, up or down, to fill it.
         """
         from mlx_vlm.prompt_utils import get_chat_template
         from mlx_vlm.utils import load_image, prepare_inputs
@@ -119,13 +122,20 @@ class EmbeddingGemma2(_MlxVlmEmbedder):
         content = ([{"type": "text", "text": prefix}] if prefix else []) + [{"type": "image"}]
         messages = [{"role": "user", "content": content}]
         prompt = get_chat_template(self.proc, messages, add_generation_prompt=True)
-        vecs = []
-        for p in paths:
-            img = p if hasattr(p, "convert") else load_image(p)
-            inputs = prepare_inputs(self.proc, images=[img], prompts=prompt, add_special_tokens=bos)
-            out = self.model(**inputs)
-            vecs.append(np.array(out.text_embeds.astype(mx.float32))[0])
-            mx.clear_cache()
+        ip = self.proc.image_processor
+        default_tokens = ip.max_soft_tokens
+        if max_soft_tokens:
+            ip.max_soft_tokens = max_soft_tokens
+        try:
+            vecs = []
+            for p in paths:
+                img = p if hasattr(p, "convert") else load_image(p)
+                inputs = prepare_inputs(self.proc, images=[img], prompts=prompt, add_special_tokens=bos)
+                out = self.model(**inputs)
+                vecs.append(np.array(out.text_embeds.astype(mx.float32))[0])
+                mx.clear_cache()
+        finally:
+            ip.max_soft_tokens = default_tokens
         return _normalize(np.stack(vecs))
 
 
