@@ -172,6 +172,7 @@ class EmbeddingGemma300mServerCLS(EmbeddingGemma300m):
 
 
 QWEN3_PATH = "mlx-community/Qwen3-Embedding-0.6B-mxfp8"  # = server's qwen3-0.6b-embed
+QWEN3_BF16_PATH = "Qwen/Qwen3-Embedding-0.6B"  # the official BF16 weights the mxfp8 one was quantised from
 QWEN3_QUERY = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
 QWEN3_STS = "Instruct: Retrieve semantically similar text.\nQuery:"
 
@@ -181,12 +182,13 @@ class Qwen3Embed(Encoder):
     Query instruction from the model's config_sentence_transformers.json."""
 
     name = "qwen3-0.6b-embed"
+    path = QWEN3_PATH
     server_cls = False
 
     def __init__(self):
         from mlx_embeddings.utils import load
 
-        self.model, self.tok = load(QWEN3_PATH)
+        self.model, self.tok = load(self.path)
         self.tok = getattr(self.tok, "_tokenizer", self.tok)
 
     def prefix(self, kind):
@@ -202,6 +204,13 @@ class Qwen3Embed(Encoder):
         return _normalize(np.array(out.text_embeds.astype(mx.float32)))
 
 
+class Qwen3EmbedBF16(Qwen3Embed):
+    """Same pooling and prompts as Qwen3Embed, on the unquantised BF16 weights."""
+
+    name = "qwen3-0.6b-embed-bf16"
+    path = QWEN3_BF16_PATH
+
+
 class Qwen3EmbedServerCLS(Qwen3Embed):
     """Reproduces the 1235 server's `standard` path for this model: CLS token, no instruction."""
 
@@ -210,7 +219,7 @@ class Qwen3EmbedServerCLS(Qwen3Embed):
 
 
 ENCODERS = {c.name: c for c in (BgeM3, EmbeddingGemma2, EmbeddingGemma300m, EmbeddingGemma300mServerCLS,
-                                Qwen3Embed, Qwen3EmbedServerCLS)}
+                                Qwen3Embed, Qwen3EmbedBF16, Qwen3EmbedServerCLS)}
 
 
 def load_encoder(name: str) -> tuple[Encoder, float]:

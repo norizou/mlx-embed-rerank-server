@@ -1,0 +1,52 @@
+{
+  "load_sec": 2.1,
+  "jagovfaqs_22k": {
+    "n_queries": 300,
+    "n_docs": 10000,
+    "encode_sec": 140.6,
+    "dim1024": {
+      "ndcg_10": 74.79,
+      "mrr_10": 71.19,
+      "recall_10": 85.67,
+      "recall_100": 93.0
+    }
+  },
+  "peak_mem_gb": 2.13,
+  "jaqket": {
+    "n_queries": 300,
+    "n_docs": 10000,
+    "encode_sec": 615.5,
+    "dim1024": {
+      "ndcg_10": 65.87,
+      "mrr_10": 61.49,
+      "recall_10": 79.67,
+      "recall_100": 94.67
+    }
+  },
+  "miracl-retrieval": {
+    "n_queries": 300,
+    "n_docs": 10000,
+    "encode_sec": 167.4,
+    "dim1024": {
+      "ndcg_10": 98.42,
+      "mrr_10": 98.94,
+      "recall_10": 99.29,
+      "recall_100": 100.0
+    }
+  },
+  "jsts": {
+    "n_pairs": 1457,
+    "spearman": 81.11
+  },
+  "speed": {
+    "cold": {
+      "sec": 20.82,
+      "ms_per_doc": 20.82
+    },
+    "warm": {
+      "sec": 20.75,
+      "ms_per_doc": 20.749
+    },
+    "avg_chars": 172
+  }
+}

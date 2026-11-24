@@ -35,6 +35,8 @@ from eval_text import load_retrieval
 ROOT = Path(__file__).parent
 RESULTS = ROOT / "results"
 RERANKER = "mlx-community/Qwen3-Reranker-0.6B-mxfp8"  # = server's qwen3-0.6b
+# --reranker bf16: the official unquantised weights the mxfp8 one was made from
+RERANKERS = {"mxfp8": RERANKER, "bf16": "Qwen/Qwen3-Reranker-0.6B"}
 DOC_TOKENS = 512  # same budget as the first-stage embeddings (§9)
 JDOCQA_QUERIES = 300  # sampled (seed 42) to match the JMTEB tasks; the full 744 take ~2x as long
 TOKENS_PER_BATCH = 16_384
@@ -50,10 +52,10 @@ OFFICIAL_INSTRUCTION = "Given a web search query, retrieve relevant passages tha
 
 
 class Reranker:
-    def __init__(self):
+    def __init__(self, repo: str = RERANKER):
         from mlx_lm import load
 
-        self.model, wrapper = load(RERANKER)
+        self.model, wrapper = load(repo)
         self.tok = getattr(wrapper, "_tokenizer", wrapper)
         self.yes = self.tok.convert_tokens_to_ids("yes")
         self.no = self.tok.convert_tokens_to_ids("no")
@@ -175,11 +177,14 @@ def main():
     ap.add_argument("--formats", nargs="+", default=["server", "official"])
     ap.add_argument("--k", type=int, default=max(DEPTHS))
     ap.add_argument("--single", action="store_true", help="one sequence per forward (= server numerics)")
+    ap.add_argument("--reranker", choices=list(RERANKERS), default="mxfp8")
     args = ap.parse_args()
     RESULTS.mkdir(exist_ok=True)
-    out_file = RESULTS / "rerank_qwen3-0.6b.json"
+    tag = "" if args.reranker == "mxfp8" else f"-{args.reranker}"  # mxfp8 keeps the original file / cache names
+    out_file = RESULTS / f"rerank_qwen3-0.6b{tag}.json"
     res = json.loads(out_file.read_text()) if out_file.exists() else {}
-    rr = Reranker()
+    rr = Reranker(RERANKERS[args.reranker])
+    res["reranker"] = RERANKERS[args.reranker]
     res["doc_tokens"] = DOC_TOKENS
     for task in args.tasks:
         queries, qrels, docids, docs, firsts = jdocqa_task() if task == "jdocqa" else jmteb_task(task)
@@ -193,7 +198,7 @@ def main():
             tr[name]["first_stage"]["recall_ceiling"] = {f"R@{k}": recall_at(ids, qrels, k) for k in DEPTHS}
         for fmt in args.formats:
             label = f"{fmt}-single" if args.single else fmt
-            key = cache_path("qwen3-0.6b-rerank", f"{task}-{label}-k{args.k}-d{DOC_TOKENS}")
+            key = cache_path(f"qwen3-0.6b-rerank{tag}", f"{task}-{label}-k{args.k}-d{DOC_TOKENS}")
             if key.exists():
                 scores = dict(np.load(key, allow_pickle=True).item())
                 elapsed = None
