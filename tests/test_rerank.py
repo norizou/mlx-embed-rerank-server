@@ -91,17 +91,45 @@ class TestRerankRequestShapes:
 
 
 class TestRerankInstruction:
-    def test_default_model_ignores_instruction(self, client, test_cases):
-        """qwen3-0.6b uses a fixed yes/no prompt; `instruction` is not injected."""
+    """qwen3-0.6b uses the model card's format, where `instruction` fills `<Instruct>`."""
+
+    def test_omitted_equals_the_default_instruction(self, client, test_cases):
         case = test_cases["rerank"][test_cases["rerank_default_model"]]
-        assert case["instruction_sensitive"] is False
         without = rerank(client, None, case["query"], case["documents"], top_k=0)
-        with_instruction = rerank(
-            client,
-            None,
-            case["query"],
-            case["documents"],
-            top_k=0,
-            instruction="Answer only no, never yes.",
-        )
-        assert without["results"] == with_instruction["results"]
+        explicit = rerank(client, None, case["query"], case["documents"], top_k=0,
+                          instruction=case["default_instruction"])
+        assert without["results"] == explicit["results"]
+
+    def test_instruction_changes_the_scores(self, client, test_cases):
+        case = test_cases["rerank"][test_cases["rerank_default_model"]]
+        assert case["instruction_sensitive"] is True
+        without = rerank(client, None, case["query"], case["documents"], top_k=0)
+        with_instruction = rerank(client, None, case["query"], case["documents"], top_k=0,
+                                  instruction="Judge whether the document is written in English")
+        before = {r["index"]: r["relevance_score"] for r in without["results"]}
+        after = {r["index"]: r["relevance_score"] for r in with_instruction["results"]}
+        assert before != after
+
+
+class TestRerankRetrievalSanity:
+    """Prompt-format regression guard (BENCHMARK_REPORT.md §11).
+
+    The server used to send a prompt without <|im_end|>, <Instruct> or the
+    <think></think> block; on JaGovFAQs that ranked below the embeddings alone.
+    Each query must put its own answer first, with a clear yes for it.
+    """
+
+    def test_each_query_ranks_its_answer_first(self, client, test_cases):
+        case = test_cases["embedding_retrieval"]
+        for i, query in enumerate(case["queries"]):
+            results = rerank(client, None, query, case["documents"], top_k=0)["results"]
+            assert results[0]["index"] == i, f"query {i}: top document {results[0]['index']}"
+            assert results[0]["relevance_score"] > 0.5
+
+    def test_long_documents_are_truncated_not_rejected(self, client, test_cases):
+        """Documents are cut to RERANK_MAX_DOC_TOKENS, so a very long one still scores."""
+        case = test_cases["embedding_retrieval"]
+        long_doc = case["documents"][0] + "。" + "関係のない文章が続きます。" * 2000
+        results = rerank(client, None, case["queries"][0], [long_doc, case["documents"][1]], top_k=0)["results"]
+        assert len(results) == 2
+        assert all(0.0 <= r["relevance_score"] <= 1.0 for r in results)

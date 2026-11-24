@@ -133,9 +133,12 @@ Lists every model in `available_*` (loaded or not) in the OpenAI `list` shape. E
 | `documents` | `string[]` | – (required) | Candidate documents. |
 | `model` | `string` | `qwen3-0.6b` | Reranker model ID. |
 | `top_k` | `int` | `10` | Number of results to return. `0` returns every document. |
-| `instruction` | `string` | `null` | **Used by `qwen3-vl-reranker-2b` only.** `qwen3-0.6b` uses its own fixed yes/no judging prompt and ignores this field. |
+| `instruction` | `string` | `null` | For `qwen3-0.6b`, the `<Instruct>` text of the model card's prompt (default: `Given a web search query, retrieve relevant passages that answer the query`; the card recommends English instructions even for other languages). Also used by `qwen3-vl-reranker-2b`. |
 
-The response contains `{"model": ..., "results": [{"index": ..., "relevance_score": ...}, ...]}` sorted by descending score. For `qwen3-0.6b` the score is the softmax probability of the `yes` token against the `no` token, so absolute values are typically small; the **ranking**, not the magnitude, is the signal.
+The response contains `{"model": ..., "results": [{"index": ..., "relevance_score": ...}, ...]}` sorted by descending score. For `qwen3-0.6b` the score is P(yes) from a softmax over the `yes` / `no` logits (0–1): relevant documents score near 1, unrelated ones near 0. Documents are truncated to 1024 tokens.
+
+> **When to use it** (`BENCHMARK_REPORT.md` §11): for text RAG, reranking the embedding top ~20 adds 1.2–5.0 nDCG@10.
+> For document pages retrieved with the image+OCR hybrid, the reranker only reads the OCR text and lowers the ranking; skip it, or fuse its score 1:1 with the first stage.
 
 ### Error responses
 
@@ -583,7 +586,7 @@ Everything is an **API integration test** against the running server — nothing
 | :--- | :--- |
 | `tests/test_health.py` | `/health` payload, defaults, and the port-1236 supervisor probe |
 | `tests/test_embeddings.py` | All 6 models: dimensions, unit norm, OpenAI envelope, default model, string vs list input, determinism, `input_type` prompts, where `instruction` applies, **4-query retrieval sanity (pooling regression guard)**, Matryoshka `dimensions`, image inputs (single, mixed-order, colour/caption match), `image_tokens` (default, other budgets, text unaffected) |
-| `tests/test_rerank.py` | Both rerankers: response shape, descending order, expected winner, score range, `/rerank` alias, `top_k` (default / limit / `0` = all / oversized), empty documents, determinism, `instruction` ignored by `qwen3-0.6b` |
+| `tests/test_rerank.py` | Both rerankers: response shape, descending order, expected winner, score range, `/rerank` alias, `top_k` (default / limit / `0` = all / oversized), empty documents, determinism, `instruction` (omitted = default text, changes the scores), **4-query retrieval sanity (prompt-format regression guard)**, long-document truncation |
 | `tests/test_audio.py` | STT JSON shape, `/tmp` cleanup, TTS content-type / RIFF header / defaults, audio models staying resident |
 | `tests/test_errors.py` | Unknown model → 400 on every endpoint, image / `dimensions` / `image_tokens` input errors (URLs, paths and broken base64 rejected), wrong model type, 422 validation, 404 |
 

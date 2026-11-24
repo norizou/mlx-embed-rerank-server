@@ -116,8 +116,9 @@
         0.0,
         1.0
       ],
-      "instruction_sensitive": false,
-      "requires_vl": false
+      "instruction_sensitive": true,
+      "requires_vl": false,
+      "default_instruction": "Given a web search query, retrieve relevant passages that answer the query"
     },
     "qwen3-vl-reranker-2b": {
       "query": "猫",

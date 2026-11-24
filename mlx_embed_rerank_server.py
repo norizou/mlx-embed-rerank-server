@@ -119,6 +119,20 @@ GEMMA_QUERY_PREFIX = "task: search result | query: "
 GEMMA_DOC_PREFIX = "title: none | text: "
 # Qwen3-Embedding のクエリ指示文 (config_sentence_transformers.json の query)。文書側は指示文なし
 QWEN3_EMBED_DEFAULT_INSTRUCTION = "Given a web search query, retrieve relevant passages that answer the query"
+# Qwen3-Reranker の公式書式 (モデルカードの prefix / suffix / format_instruction)。
+# 以前の書式 (<|im_end|>・<Instruct>・<think></think> なし) は nDCG@10 で 1.1〜10.9 低く、
+# 課題によっては埋め込みだけより悪かった (BENCHMARK_REPORT.md §11)。
+QWEN3_RERANK_PREFIX = (
+    "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query "
+    "and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n"
+    "<|im_start|>user\n"
+)
+QWEN3_RERANK_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+# モデルカードは多言語でも英語の指示文を推奨している
+QWEN3_RERANK_DEFAULT_INSTRUCTION = "Given a web search query, retrieve relevant passages that answer the query"
+# 文書はこのトークン数で切り詰める (長い文書で時間とメモリが際限なく増えないように)。
+# §11 の評価は 512。512 と 1024 の差は ±0.3 ポイント以内だった
+RERANK_MAX_DOC_TOKENS = 1024
 EMBED_MAX_LENGTH = 2048
 EMBED_BATCH_SIZE = 16
 # 画像 1 枚あたりのトークン数 (Gemma4 image processor の max_soft_tokens が受け付ける値)。
@@ -498,6 +512,11 @@ def _compute_embeddings_raw(model, processor, config, texts, input_type, instruc
 
     raise HTTPException(status_code=500, detail=f"Unknown embedding model type: {mtype}")
 
+def _truncate_tokens(tokenizer, text: str, max_tokens: int) -> str:
+    ids = tokenizer.encode(text, add_special_tokens=False)
+    return text if len(ids) <= max_tokens else tokenizer.decode(ids[:max_tokens])
+
+
 def compute_rerank(query: str, docs: List[str], model_name: str, instruction: Optional[str] = None) -> List[float]:
     cached, config = manager.get_rerank(model_name)
     
@@ -523,14 +542,14 @@ def compute_rerank(query: str, docs: List[str], model_name: str, instruction: Op
     scores = []
     for doc in docs:
         if config["type"] == "qwen3":
+            # 公式書式。プロンプト全体を 1 回でトークン化する (部分ごとだと境目のトークンが変わる)。
+            # 1 文書ずつ forward する (まとめて処理すると mxfp8 の数値差で P(yes) が ±0.03 ずれる)
             prompt = (
-                "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query. "
-                "Note that the answer can only be \"yes\" or \"no\".\n"
-                "<|im_start|>user\n"
-                f"<Query>: {query}\n<Document>: {doc}\n"
-                "<|im_start|>assistant\n"
+                f"{QWEN3_RERANK_PREFIX}<Instruct>: {instruction or QWEN3_RERANK_DEFAULT_INSTRUCTION}\n"
+                f"<Query>: {query}\n<Document>: {_truncate_tokens(tokenizer, doc, RERANK_MAX_DOC_TOKENS)}"
+                f"{QWEN3_RERANK_SUFFIX}"
             )
-            input_ids = mx.array(tokenizer.encode(prompt))
+            input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=False))
             logits = model(input_ids[None, :])
             last_logits = logits[0, -1, :]
             

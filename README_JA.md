@@ -138,9 +138,12 @@ http://localhost:1235
 | `documents` | `string[]` | 必須 | 候補文書 |
 | `model` | `string` | `qwen3-0.6b` | Reranker モデル ID |
 | `top_k` | `int` | `10` | 返却件数。`0` を指定すると全件返却 |
-| `instruction` | `string` | `null` | **`qwen3-vl-reranker-2b` 専用**。`qwen3-0.6b` は固定の Yes/No 判定プロンプトを使うため無視されます |
+| `instruction` | `string` | `null` | `qwen3-0.6b` では公式書式の `<Instruct>` に入る指示文（省略時は `Given a web search query, retrieve relevant passages that answer the query`。モデルカードは日本語の文書でも英語の指示文を推奨）。`qwen3-vl-reranker-2b` でも使用 |
 
-レスポンスは `{"model": ..., "results": [{"index": ..., "relevance_score": ...}, ...]}` でスコア降順です。`qwen3-0.6b` のスコアは `yes` / `no` トークンのロジットに対する softmax 確率のため絶対値は小さくなります。**順位**が信号であり、スコアの絶対値ではありません。
+レスポンスは `{"model": ..., "results": [{"index": ..., "relevance_score": ...}, ...]}` でスコア降順です。`qwen3-0.6b` のスコアは `yes` / `no` の 2 つのロジットの softmax で求めた yes の確率（0〜1）で、関連する文書は 1 に近く、関連しない文書は 0 に近くなります。文書は 1024 トークンで切り詰めます。
+
+> **使い方の目安**（`BENCHMARK_REPORT.md` §11）: テキストの RAG では、埋め込みで取った上位 20 件程度を並べ替えると nDCG@10 が +1.2〜+5.0 上がります。
+> 画像を使う文書ページの検索（画像＋OCR のハイブリッド）では、Reranker は OCR テキストしか読まないため順位が下がります。使わないか、1 段目のスコアと 1:1 で合算してください。
 
 ### エラー応答の挙動
 
@@ -617,7 +620,7 @@ uv run pytest tests/
 | :--- | :--- |
 | `tests/test_health.py` | `/health` のペイロード構造・デフォルトモデルの実在・ポート 1236 の監視プローブ |
 | `tests/test_embeddings.py` | 全 6 モデルの次元数・単位ベクトル性・OpenAI 互換構造・デフォルトモデル・文字列/配列入力の等価性・決定性・`input_type` のプロンプト挙動・`instruction` の有効/無視・**4 クエリ×4 文書の検索健全性（プーリング回帰の検知）**・Matryoshka の `dimensions`・画像入力（単体・テキスト混在の順序・色とキャプションの対応）・`image_tokens`（既定値との一致・他の値での変化・テキストへの非影響） |
-| `tests/test_rerank.py` | 両 Reranker のレスポンス構造・降順・期待 1 位・スコア範囲・`/rerank` エイリアス・`top_k`（既定/切り詰め/`0`=全件/超過）・空配列・決定性・`qwen3-0.6b` が `instruction` を無視すること |
+| `tests/test_rerank.py` | 両 Reranker のレスポンス構造・降順・期待 1 位・スコア範囲・`/rerank` エイリアス・`top_k`（既定/切り詰め/`0`=全件/超過）・空配列・決定性・`instruction`（省略時と既定文の一致、指定でスコアが変わること）・**4 クエリの検索健全性（プロンプト書式の回帰検知）**・長い文書の切り詰め |
 | `tests/test_audio.py` | STT の JSON 構造・`/tmp` 一時ファイルの後始末・TTS の Content-Type と RIFF ヘッダ・デフォルトモデル・音声モデルが常駐すること |
 | `tests/test_errors.py` | 未対応モデルの 400（全エンドポイント）・画像/`dimensions`/`image_tokens` の入力エラー（URL・パス・壊れた base64 の拒否を含む）・種別違いモデル・422 バリデーション・404 |
 
@@ -663,6 +666,13 @@ uv run pytest tests/ -m audio         # STT/TTS のみ
 ---
 
 ## 📝 変更履歴
+
+### 2026-11-24 — Reranker を公式の書式に修正
+
+- **不具合修正**: `qwen3-0.6b` のプロンプトがモデルカードの書式と違っていた（`<|im_end|>` でターンを閉じず、`<Instruct>` と `<think></think>` のブロックがなかった）。JMTEB / JDocQA の評価では公式の書式より nDCG@10 が 1.1〜10.9 低く、JaGovFAQs では埋め込みだけより順位が悪かった（`BENCHMARK_REPORT.md` §11）。公式の書式に修正
+- `instruction` が `qwen3-0.6b` でも効くようになった（`<Instruct>` の文）。省略時は英語の既定文
+- 文書を 1024 トークンで切り詰めるようにした
+- **スコアの分布が変わる**（関連する文書は 1 に近く、関連しない文書は 0 に近くなる）。スコアのしきい値で絞り込んでいるクライアントは見直しが必要
 
 ### 2026-11-24 — 埋め込みプーリングの修正、`embeddinggemma-2` の追加とデフォルト化
 
